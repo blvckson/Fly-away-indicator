@@ -18,7 +18,7 @@
     <Button android:id="@+id/stop" android:layout_width="match_parent" android:layout_height="wrap_content"
         android:text="STOP MONITOR"/>
     <Button android:id="@+id/analysis" android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:text="RECORDED ROUNDS / ANALYSIS" android:onClick="refreshRounds"/>
+        android:text="RECORDED ROUNDS / ANALYSIS"/>
     <TextView android:id="@+id/rounds" android:layout_width="match_parent" android:layout_height="wrap_content"
         android:layout_marginTop="8dp" android:text="Recorded rounds: 0"/>
     <TextView android:id="@+id/statement" android:layout_width="match_parent" android:layout_height="0dp"

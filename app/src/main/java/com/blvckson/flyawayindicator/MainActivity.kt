@@ -36,6 +36,7 @@ class MainActivity : Activity() {
 
         findViewById<Button>(R.id.start).setOnClickListener{requestMonitoring()}
         findViewById<Button>(R.id.stop).setOnClickListener{stopMonitoring()}
+        findViewById<Button>(R.id.analysis).setOnClickListener{refreshRounds()}
         findViewById<View>(R.id.more).setOnClickListener{showMore(it)}
         refreshRounds()
     }

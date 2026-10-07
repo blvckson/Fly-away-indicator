@@ -6,7 +6,10 @@ import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
+import android.view.MenuItem
+import android.view.View
 import android.widget.Button
+import android.widget.PopupMenu
 import android.widget.TextView
 
 class MainActivity : Activity() {
@@ -32,10 +35,29 @@ class MainActivity : Activity() {
         rounds=findViewById(R.id.rounds)
 
         findViewById<Button>(R.id.start).setOnClickListener{requestMonitoring()}
-        findViewById<Button>(R.id.stop).setOnClickListener{
-            stopService(Intent(this,ScreenMonitorService::class.java))
-            status.text="Monitor stopped."
+        findViewById<Button>(R.id.stop).setOnClickListener{stopMonitoring()}
+        findViewById<View>(R.id.more).setOnClickListener{showMore(it)}
+        refreshRounds()
+    }
+
+    private fun showMore(anchor:View){
+        val popup=PopupMenu(this,anchor)
+        popup.menuInflater.inflate(R.menu.main_menu,popup.menu)
+        popup.setOnMenuItemClickListener{item:MenuItem->
+            when(item.itemId){
+                R.id.menu_start -> { requestMonitoring(); true }
+                R.id.menu_stop -> { stopMonitoring(); true }
+                R.id.menu_analysis -> { refreshRounds(); status.text="Recorded rounds / analysis refreshed."; true }
+                R.id.menu_refresh -> { refreshRounds(); true }
+                else -> false
+            }
         }
+        popup.show()
+    }
+
+    private fun stopMonitoring(){
+        stopService(Intent(this,ScreenMonitorService::class.java))
+        status.text="Monitor stopped."
         refreshRounds()
     }
 

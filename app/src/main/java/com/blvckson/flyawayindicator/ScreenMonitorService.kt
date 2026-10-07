@@ -121,7 +121,7 @@ class ScreenMonitorService : Service() {
         preScore=preScore*0.72+preCandidate*0.28
         if(preScore>=0.62)preHold++ else preHold=max(0,preHold-1)
 
-        if(state.isLive){
+        if(state.isLive || (!recording && state.sceneScore >= 0.20 && state.planeScore >= 0.05)){
             liveMisses=0
             if(!recording)startRound(w,h,density)
         }else{
@@ -138,7 +138,7 @@ class ScreenMonitorService : Service() {
             }else{
                 publish("RECORDING ROUND $round",false,"Whole Aviator live screen is being recorded; visual and plane behaviour are being tracked.")
             }
-            if(liveMisses>=3)finishRound()
+            if(liveMisses>=2)finishRound()
         }
 
         lastFrame?.recycle()

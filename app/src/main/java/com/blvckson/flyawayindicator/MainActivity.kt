@@ -1,6 +1,7 @@
 package com.blvckson.flyawayindicator
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.*
 import android.media.projection.MediaProjectionManager
 import android.net.Uri
@@ -49,6 +50,7 @@ class MainActivity : Activity() {
                 R.id.menu_start -> { requestMonitoring(); true }
                 R.id.menu_stop -> { stopMonitoring(); true }
                 R.id.menu_analysis -> { refreshRounds(); status.text="Recorded rounds / analysis refreshed."; true }
+                R.id.menu_statement -> { showStatement(); true }
                 R.id.menu_refresh -> { refreshRounds(); true }
                 else -> false
             }
@@ -84,6 +86,14 @@ class MainActivity : Activity() {
             .putExtra("data",data)
         startService(service)
         status.text="Monitor active — waiting for the Aviator live screen."
+    }
+
+    private fun showStatement(){
+        AlertDialog.Builder(this)
+            .setTitle("Statement")
+            .setMessage(statement.text)
+            .setPositiveButton("OK", null)
+            .show()
     }
 
     private fun refreshRounds(){

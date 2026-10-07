@@ -235,7 +235,7 @@ class ScreenMonitorService : Service() {
         main.post{
             overlay?.text=(if(pre)"●  🔴 " else "●  ")+status
             overlay?.setTextColor(0xFFFFFFFF.toInt())
-            overlay?.setBackgroundColor(if(pre)0xFFE53935.toInt() else 0xCC202124.toInt())
+            overlay?.setBackgroundColor(when { pre -> 0xFFE53935.toInt(); recording -> 0xFF2E7D32.toInt(); else -> 0xCC202124.toInt() })
         }
         sendBroadcast(Intent(ACTION_STATUS).putExtra(EXTRA_STATUS,status).putExtra(EXTRA_STATEMENT,statement).putExtra(EXTRA_RED,pre).putExtra(EXTRA_ROUNDS,store.all().size))
     }

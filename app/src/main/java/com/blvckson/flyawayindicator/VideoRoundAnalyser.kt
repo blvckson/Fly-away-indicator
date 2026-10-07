@@ -5,7 +5,6 @@ import android.media.MediaMetadataRetriever
 import java.io.File
 import kotlin.math.abs
 import kotlin.math.max
-import kotlin.math.min
 
 data class VideoAnalysis(
     val difference: Double,
@@ -25,9 +24,6 @@ class VideoRoundAnalyser {
             val duration = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
             if (duration < 200L) return VideoAnalysis(0.0, 0.0, "", "Round video was too short for analysis.")
 
-            // High temporal-density sampling: 40ms intervals, with an additional
-            // dense final-stage pass. This is intentionally independent of the
-            // displayed multiplier value.
             val frames = ArrayList<Bitmap>()
             val maxFrames = 140
             var t = 0L
@@ -39,9 +35,10 @@ class VideoRoundAnalyser {
 
             if (frames.size < 5) return VideoAnalysis(0.0, 0.0, "", "Not enough visual frames for comparison.")
 
-            val split = (frames.size * 0.60).coerceAtLeast(1)
+            val split = (frames.size * 0.60).toInt().coerceAtLeast(1)
+            val lateStart = (frames.size * 0.65).toInt().coerceAtMost(frames.size - 1)
             val early = frames.subList(0, split)
-            val late = frames.subList((frames.size * 0.65).toInt().coerceAtMost(frames.size - 1), frames.size)
+            val late = frames.subList(lateStart, frames.size)
 
             val earlySignature = signature(early)
             val lateSignature = signature(late)
@@ -115,9 +112,6 @@ class VideoRoundAnalyser {
     }
 
     private fun crossRoundProxy(s: Sig):Double {
-        // A single video cannot establish cross-round similarity. This is a
-        // neutral within-video consistency score; the database layer will
-        // compare late signatures across multiple recorded rounds.
         val variability=(s.red+s.bright+s.edge+s.motion+s.center)/5.0
         return (1.0-variability*0.35).coerceIn(0.0,1.0)
     }
@@ -148,9 +142,5 @@ class VideoRoundAnalyser {
         return total.toDouble()/max(1,n*255)
     }
 
-    private fun extractRedEnding(frames: List<Bitmap>): String {
-        // Numeric OCR is intentionally not used here: the recorded red end
-        // multiplier will be added by the live OCR component in the service.
-        return ""
-    }
+    private fun extractRedEnding(frames: List<Bitmap>): String = ""
 }

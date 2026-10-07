@@ -20,7 +20,7 @@ class MainActivity : Activity() {
         override fun onReceive(context:Context?,intent:Intent?){
             status.text=intent?.getStringExtra(ScreenMonitorService.EXTRA_STATUS) ?: status.text
             statement.text=intent?.getStringExtra(ScreenMonitorService.EXTRA_STATEMENT) ?: ""
-            rounds.text="Recorded rounds: \${intent?.getIntExtra(ScreenMonitorService.EXTRA_ROUNDS,0) ?: 0}"
+            rounds.text="Recorded rounds: ${intent?.getIntExtra(ScreenMonitorService.EXTRA_ROUNDS,0) ?: 0}"
         }
     }
 
@@ -41,7 +41,7 @@ class MainActivity : Activity() {
 
     private fun requestMonitoring(){
         if(!Settings.canDrawOverlays(this)){
-            startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:\$packageName")))
+            startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
             status.text="Allow overlay permission, then press START MONITOR again."
             return
         }
@@ -65,13 +65,13 @@ class MainActivity : Activity() {
 
     private fun refreshRounds(){
         val all=RoundRecordStore(this).all()
-        rounds.text="Recorded rounds: \${all.size}"
+        rounds.text="Recorded rounds: ${all.size}"
         if(all.isEmpty()){
             statement.text="Statement Area: waiting for recorded Aviator rounds."
             return
         }
         val recent=all.takeLast(8).asReversed().joinToString("\n"){r->
-            "Round \${r.round}: \${if(r.endingMultiplier.isBlank())"end multiplier not read" else r.endingMultiplier} | Difference \${"%.0f".format(r.difference)}%"
+            "Round ${r.round}: ${if(r.endingMultiplier.isBlank()) "end multiplier not read" else r.endingMultiplier} | Difference ${"%.0f".format(r.difference)}%"
         }
         statement.text="Statement Area\n$recent"
     }

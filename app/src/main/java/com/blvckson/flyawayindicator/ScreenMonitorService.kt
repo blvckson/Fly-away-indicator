@@ -42,6 +42,7 @@ class ScreenMonitorService : Service() {
     private var round=0
     private var recording=false
     private var missing=0
+    private var liveMisses=0
     private var lastFrame:Bitmap?=null
     private var lastPlaneX=Float.NaN
     private var lastPlaneY=Float.NaN
@@ -66,6 +67,7 @@ class ScreenMonitorService : Service() {
         val data=intent?.getParcelableExtra<Intent>("data") ?: return START_NOT_STICKY
         val pm=getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         projection=pm.getMediaProjection(code,data)
+        if(projection==null)return START_NOT_STICKY
         startForeground(7,notification())
         startCapture()
         return START_STICKY
@@ -119,10 +121,15 @@ class ScreenMonitorService : Service() {
         preScore=preScore*0.72+preCandidate*0.28
         if(preScore>=0.62)preHold++ else preHold=max(0,preHold-1)
 
-        if(state.isLive&&!recording)startRound(w,h,density)
+        if(state.isLive){
+            liveMisses=0
+            if(!recording)startRound(w,h,density)
+        }else{
+            liveMisses=(liveMisses+1).coerceAtMost(6)
+        }
 
         if(recording){
-            if(System.currentTimeMillis()-lastRedRead>=100L&&(preScore>=0.50||missing>0)){
+            if(System.currentTimeMillis()-lastRedRead>=80L){
                 lastRedRead=System.currentTimeMillis()
                 redReader.inspect(frame){v->endingMultiplier=v}
             }
@@ -131,7 +138,7 @@ class ScreenMonitorService : Service() {
             }else{
                 publish("RECORDING ROUND $round",false,"Whole Aviator live screen is being recorded; visual and plane behaviour are being tracked.")
             }
-            if(missing>=4||(!state.isLive&&missing>=2))finishRound()
+            if(liveMisses>=3)finishRound()
         }
 
         lastFrame?.recycle()
@@ -141,9 +148,11 @@ class ScreenMonitorService : Service() {
     private fun startRound(w:Int,h:Int,density:Int){
         round=store.all().maxOfOrNull{it.round}?.plus(1)?:1
         missing=0
+        liveMisses=0
         preScore=0.0
         preHold=0
         endingMultiplier=""
+        lastRedRead=0L
         lastPlaneX=Float.NaN
         lastPlaneY=Float.NaN
         recentChanges.clear()
@@ -165,6 +174,7 @@ class ScreenMonitorService : Service() {
         publish("ROUND $round SAVED",false,statement)
         round=0
         missing=0
+        liveMisses=0
         preHold=0
         preScore=0.0
     }

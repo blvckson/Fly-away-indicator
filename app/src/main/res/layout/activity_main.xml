@@ -2,8 +2,15 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent" android:layout_height="match_parent"
     android:orientation="vertical" android:padding="16dp">
-    <TextView android:id="@+id/title" android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:text="Fly Away Indicator" android:textSize="24sp" android:textStyle="bold"/>
+    <LinearLayout
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:gravity="center_vertical">
+        <TextView android:id="@+id/title" android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:text="Fly Away Indicator" android:textSize="24sp" android:textStyle="bold"/>
+        <TextView android:id="@+id/more" android:layout_width="48dp" android:layout_height="48dp"
+            android:gravity="center" android:text="⋮" android:textSize="30sp"
+            android:contentDescription="More options" android:clickable="true" android:focusable="true"/>
+    </LinearLayout>
     <TextView android:id="@+id/status" android:layout_width="match_parent" android:layout_height="wrap_content"
         android:layout_marginTop="12dp" android:text="Ready — Aviator live-screen monitor is stopped."/>
     <Button android:id="@+id/start" android:layout_width="match_parent" android:layout_height="wrap_content"
@@ -11,7 +18,7 @@
     <Button android:id="@+id/stop" android:layout_width="match_parent" android:layout_height="wrap_content"
         android:text="STOP MONITOR"/>
     <Button android:id="@+id/analysis" android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:text="RECORDED ROUNDS / ANALYSIS"/>
+        android:text="RECORDED ROUNDS / ANALYSIS" android:onClick="refreshRounds"/>
     <TextView android:id="@+id/rounds" android:layout_width="match_parent" android:layout_height="wrap_content"
         android:layout_marginTop="8dp" android:text="Recorded rounds: 0"/>
     <TextView android:id="@+id/statement" android:layout_width="match_parent" android:layout_height="0dp"

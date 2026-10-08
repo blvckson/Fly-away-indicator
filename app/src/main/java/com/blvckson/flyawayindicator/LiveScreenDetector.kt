@@ -19,6 +19,7 @@ class LiveScreenDetector {
     private var lastPlaneY = Float.NaN
     private var stableHits = 0
     private var missHits = 0
+    private var confidence = 0.0
 
     fun inspect(frame: Bitmap): LiveScreenState {
         val w = frame.width
@@ -35,7 +36,7 @@ class LiveScreenDetector {
         var sy = 0.0
         var sw = 0.0
 
-        val step = 7
+        val step = 6
         for (y in y0 until y1 step step) {
             for (x in x0 until x1 step step) {
                 val c = frame.getPixel(x, y)
@@ -73,17 +74,20 @@ class LiveScreenDetector {
         // required for live-screen gating.
         val central = centralAppearance(frame)
         val sceneScore = planeScore * 0.58 + central * 0.30 + brightScore * 0.12
-        val candidate = sceneScore >= 0.28 && (planeScore >= 0.18 || movementScore >= 0.18)
+        val candidate = sceneScore >= 0.25 && (planeScore >= 0.15 || movementScore >= 0.14)
 
         if (candidate) {
-            stableHits = (stableHits + 1).coerceAtMost(4)
+            stableHits = (stableHits + 1).coerceAtMost(5)
             missHits = 0
+            confidence = (confidence + 0.22).coerceAtMost(1.0)
         } else {
-            missHits = (missHits + 1).coerceAtMost(5)
+            missHits = (missHits + 1).coerceAtMost(6)
             stableHits = max(0, stableHits - 1)
+            confidence = (confidence - 0.12).coerceAtLeast(0.0)
         }
 
-        val live = stableHits >= 1 && missHits < 3
+        // Short visual dropouts are tolerated; sustained absence still ends the round.
+        val live = confidence >= 0.20 && missHits < 4
         return LiveScreenState(live, planeScore, central, sceneScore,
             if(sw>3.0) (sx/sw).toFloat() else Float.NaN,
             if(sw>3.0) (sy/sw).toFloat() else Float.NaN)

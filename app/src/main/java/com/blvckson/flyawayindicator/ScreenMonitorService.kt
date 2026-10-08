@@ -156,7 +156,7 @@ class ScreenMonitorService : Service() {
         lastPlaneX=Float.NaN
         lastPlaneY=Float.NaN
         recentChanges.clear()
-        recorder=RoundVideoRecorder(projection!!)
+        recorder=RoundVideoRecorder(projection!!,this)
         val file=recorder?.start(w,h,density)
         recording=file!=null
         if(recording)publish("RECORDING ROUND $round",false,"Aviator live screen detected — recording started automatically.")

@@ -29,7 +29,7 @@ class RoundVideoRecorder(private val projection: MediaProjection, private val co
             r.setVideoSource(MediaRecorder.VideoSource.SURFACE)
             r.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
             r.setVideoEncoder(MediaRecorder.VideoEncoder.H264)
-            r.setVideoEncodingBitRate(8_000_000)
+            r.setVideoEncodingBitRate(12_000_000)
             r.setVideoFrameRate(30)
             r.setVideoSize(safeWidth, safeHeight)
             r.setOutputFile(file.absolutePath)

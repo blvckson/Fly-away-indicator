@@ -23,7 +23,8 @@ class RoundVideoRecorder(private val projection: MediaProjection, private val co
         this.height = height
         this.density = density
 
-        val base = context.getExternalFilesDir("movies") ?: context.filesDir\n        val dir = File(base, "FlyAwayIndicator")
+        val base = context.getExternalFilesDir("movies") ?: context.filesDir
+        val dir = File(base, "FlyAwayIndicator")
         if (!dir.exists() && !dir.mkdirs()) return null
 
         val stamp = SimpleDateFormat("yyyyMMdd_HHmmss_SSS", Locale.US).format(Date())

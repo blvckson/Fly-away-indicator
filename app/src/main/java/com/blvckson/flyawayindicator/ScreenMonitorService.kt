@@ -32,6 +32,9 @@ class ScreenMonitorService : Service() {
     private var recorder:RoundVideoRecorder?=null
     private val detector=LiveScreenDetector()
     private val videoAnalyser=VideoRoundAnalyser()
+    private lateinit var analysisThread:HandlerThread
+    private lateinit var analysisHandler:Handler
+    private var nextRound=1
     private val redReader=RedMultiplierReader()
     private lateinit var store:RoundRecordStore
     private val thread=HandlerThread("FlyAwayCapture",Process.THREAD_PRIORITY_DISPLAY)
@@ -56,6 +59,10 @@ class ScreenMonitorService : Service() {
     override fun onCreate(){
         super.onCreate()
         store=RoundRecordStore(this)
+        nextRound=(store.all().maxOfOrNull{it.round}?:0)+1
+        analysisThread=HandlerThread("FlyAwayRoundAnalysis",Process.THREAD_PRIORITY_BACKGROUND)
+        analysisThread.start()
+        analysisHandler=Handler(analysisThread.looper)
         thread.start()
         handler=Handler(thread.looper)
         main=Handler(Looper.getMainLooper())
@@ -146,7 +153,7 @@ class ScreenMonitorService : Service() {
     }
 
     private fun startRound(w:Int,h:Int,density:Int){
-        round=store.all().maxOfOrNull{it.round}?.plus(1)?:1
+        round=nextRound++
         missing=0
         liveMisses=0
         preScore=0.0
@@ -165,18 +172,24 @@ class ScreenMonitorService : Service() {
 
     private fun finishRound(){
         if(!recording)return
+        val savedRound=round
+        val savedEnding=endingMultiplier
         val file=recorder?.stop()
         recording=false
-        val analysis=if(file!=null)videoAnalyser.analyse(file) else VideoAnalysis(0.0,0.0,"","No video file was produced.")
-        val finalMultiplier=if(endingMultiplier.isNotBlank())endingMultiplier else analysis.redEndMultiplier
-        val statement="Difference earlier → pre-fly-away: %.0f%%. Pre-fly-away visual consistency within this recording: %.0f%%. %s".format(analysis.difference,analysis.preSimilarity,analysis.statement)
-        store.add(RoundRecord(round,finalMultiplier,file?.absolutePath?:"",analysis.difference,analysis.preSimilarity,statement))
-        publish("ROUND $round SAVED",false,statement)
+        val previous=store.all()
         round=0
         missing=0
         liveMisses=0
         preHold=0
         preScore=0.0
+        analysisHandler.post{
+            val analysis=if(file!=null) videoAnalyser.analyse(file,previous)
+            else VideoAnalysis(0.0,0.0,"","No video file was produced.")
+            val finalMultiplier=if(savedEnding.isNotBlank())savedEnding else analysis.redEndMultiplier
+            val statement="Difference earlier → pre-fly-away: %.0f%%. Pre-fly-away visual consistency against recorded rounds: %.0f%%. %s".format(analysis.difference,analysis.preSimilarity,analysis.statement)
+            store.add(RoundRecord(savedRound,finalMultiplier,file?.absolutePath?:"",analysis.difference,analysis.preSimilarity,statement,analysis.behaviourSignature))
+            publish("ROUND $savedRound SAVED",false,statement)
+        }
     }
 
     private data class Plane(val found:Boolean,val x:Float,val y:Float)
@@ -268,7 +281,9 @@ class ScreenMonitorService : Service() {
         lastFrame?.recycle();lastFrame=null
         redReader.close()
         overlay?.let{wm?.removeView(it)};overlay=null
-        thread.quitSafely();super.onDestroy()
+        thread.quitSafely()
+        if(::analysisThread.isInitialized) analysisThread.quitSafely()
+        super.onDestroy()
     }
 
     override fun onBind(intent:Intent?):IBinder?=null

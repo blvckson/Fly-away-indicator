@@ -111,15 +111,14 @@ class ScreenMonitorService : Service() {
         recentChanges.addLast(change)
         while(recentChanges.size>24)recentChanges.removeFirst()
 
-        val plane=planeSignature(frame)
-        if(plane.found){
+        if(!state.planeX.isNaN() && !state.planeY.isNaN()){
             missing=0
             if(!lastPlaneX.isNaN()){
-                val d=sqrt((plane.x-lastPlaneX)*(plane.x-lastPlaneX)+(plane.y-lastPlaneY)*(plane.y-lastPlaneY))
+                val d=sqrt((state.planeX-lastPlaneX)*(state.planeX-lastPlaneX)+(state.planeY-lastPlaneY)*(state.planeY-lastPlaneY))
                 lastMove=(lastMove*0.65+(d/(w*0.08)).coerceIn(0.0,1.0)*0.35)
             }
-            lastPlaneX=plane.x
-            lastPlaneY=plane.y
+            lastPlaneX=state.planeX
+            lastPlaneY=state.planeY
         }else missing++
 
         val trend=changeTrend()
@@ -190,23 +189,6 @@ class ScreenMonitorService : Service() {
             store.add(RoundRecord(savedRound,finalMultiplier,file?.absolutePath?:"",analysis.difference,analysis.preSimilarity,statement,analysis.behaviourSignature))
             publish("ROUND $savedRound SAVED",false,statement)
         }
-    }
-
-    private data class Plane(val found:Boolean,val x:Float,val y:Float)
-
-    private fun planeSignature(b:Bitmap):Plane{
-        val x0=(b.width*0.05).toInt();val x1=(b.width*0.95).toInt()
-        val y0=(b.height*0.08).toInt();val y1=(b.height*0.72).toInt()
-        var sx=0.0;var sy=0.0;var sw=0.0
-        for(y in y0 until y1 step 7)for(x in x0 until x1 step 7){
-            val c=b.getPixel(x,y)
-            val r=(c shr 16)and 255;val g=(c shr 8)and 255;val bl=c and 255
-            if(r>155&&r>g*1.18&&r>bl*1.18){
-                val q=1.0+(r-max(g,bl)).coerceAtLeast(0)/255.0
-                sx+=x*q;sy+=y*q;sw+=q
-            }
-        }
-        return if(sw>4.0)Plane(true,(sx/sw).toFloat(),(sy/sw).toFloat()) else Plane(false,0f,0f)
     }
 
     private fun changeTrend():Double{

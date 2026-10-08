@@ -27,7 +27,7 @@ class VideoRoundAnalyser {
             if(duration<200L) return VideoAnalysis(0.0,0.0,"","Round video was too short for analysis.")
 
             // Sample the complete round, not just its first few seconds.
-            val count=160
+            val count=220
             val frames=ArrayList<Bitmap>(count)
             for(i in 0 until count){
                 val us=if(count==1) 0L else (i.toLong()*(duration*1000L))/(count-1L)
@@ -42,14 +42,15 @@ class VideoRoundAnalyser {
             }
             if(frames.size<8) return VideoAnalysis(0.0,0.0,"","Not enough visual frames for comparison.")
 
-            val split=(frames.size*0.62).toInt().coerceIn(2,frames.size-2)
-            val lateStart=(frames.size*0.72).toInt().coerceIn(split+1,frames.size-1)
+            val split=(frames.size*0.60).toInt().coerceIn(2,frames.size-2)
+            val lateStart=(frames.size*0.74).toInt().coerceIn(split+1,frames.size-1)
             val early=signature(frames.subList(0,split))
             val late=signature(frames.subList(lateStart,frames.size))
             val difference=visualDifference(early,late)
 
             val currentSig=encode(late)
             val similarity=compareWithHistory(currentSig,previous)
+            val stageDifference=stageDifference(frames,split,lateStart)
             frames.forEach{it.recycle()}
 
             val statement=when{
@@ -58,7 +59,7 @@ class VideoRoundAnalyser {
                 else -> "The pre-fly-away stage remained relatively similar to earlier activity."
             }
             VideoAnalysis(
-                difference*100.0,
+                (difference*0.65 + stageDifference*0.35)*100.0,
                 similarity*100.0,
                 "",
                 statement,
@@ -155,6 +156,13 @@ class VideoRoundAnalyser {
                 abs(a.turn-b.turn)*2.0+
                 abs(a.center-b.center)*2.0
         return(d/9.6).coerceIn(0.0,1.0)
+    }
+
+    private fun stageDifference(frames:List<Bitmap>, split:Int, lateStart:Int):Double {
+        if (lateStart <= split || split < 2) return 0.0
+        val middle = signature(frames.subList(split, lateStart))
+        val late = signature(frames.subList(lateStart, frames.size))
+        return visualDifference(middle, late)
     }
 
     private fun encode(s:Sig):String=

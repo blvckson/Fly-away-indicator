@@ -4,13 +4,12 @@ import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
 import android.media.MediaRecorder
 import android.media.projection.MediaProjection
-import android.os.Environment
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-class RoundVideoRecorder(private val projection: MediaProjection) {
+class RoundVideoRecorder(private val projection: MediaProjection, private val context: android.content.Context) {
     private var recorder: MediaRecorder? = null
     private var display: VirtualDisplay? = null
     private var outputFile: File? = null
@@ -24,7 +23,7 @@ class RoundVideoRecorder(private val projection: MediaProjection) {
         this.height = height
         this.density = density
 
-        val dir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES), "FlyAwayIndicator")
+        val base = context.getExternalFilesDir("movies") ?: context.filesDir\n        val dir = File(base, "FlyAwayIndicator")
         if (!dir.exists() && !dir.mkdirs()) return null
 
         val stamp = SimpleDateFormat("yyyyMMdd_HHmmss_SSS", Locale.US).format(Date())

@@ -9,7 +9,9 @@ data class LiveScreenState(
     val isLive: Boolean,
     val planeScore: Double,
     val multiplierVisualScore: Double,
-    val sceneScore: Double
+    val sceneScore: Double,
+    val planeX: Float = Float.NaN,
+    val planeY: Float = Float.NaN
 )
 
 class LiveScreenDetector {
@@ -82,7 +84,9 @@ class LiveScreenDetector {
         }
 
         val live = stableHits >= 1 && missHits < 3
-        return LiveScreenState(live, planeScore, central, sceneScore)
+        return LiveScreenState(live, planeScore, central, sceneScore,
+            if(sw>3.0) (sx/sw).toFloat() else Float.NaN,
+            if(sw>3.0) (sy/sw).toFloat() else Float.NaN)
     }
 
     private fun centralAppearance(frame: Bitmap): Double {

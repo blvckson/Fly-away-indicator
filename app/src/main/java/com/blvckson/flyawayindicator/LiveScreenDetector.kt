@@ -18,6 +18,7 @@ class LiveScreenDetector {
     private var lastPlaneX = Float.NaN
     private var lastPlaneY = Float.NaN
     private var stableHits = 0
+    private var movementHits = 0
     private var missHits = 0
     private var confidence = 0.0
 
@@ -74,11 +75,13 @@ class LiveScreenDetector {
         // required for live-screen gating.
         val central = centralAppearance(frame)
         val sceneScore = planeScore * 0.58 + central * 0.30 + brightScore * 0.12
-        // Require both a strong red aircraft-like signal and the central Aviator play area.
-        // Screen-wide motion or a red button by itself must not start a round.
+        // Require repeated movement of the red aircraft-like signal as well as
+        // central game visuals. Static red buttons, logos, and unrelated page changes
+        // are not sufficient evidence of an active round.
+        if (movementScore >= 0.025) movementHits = (movementHits + 1).coerceAtMost(5)
+        else movementHits = max(0, movementHits - 1)
         val candidate = sceneScore >= 0.30 &&
-            planeScore >= 0.16 && central >= 0.10 &&
-            (movementScore >= 0.04 || stableHits >= 1)
+            planeScore >= 0.16 && central >= 0.10 && movementHits >= 2
 
         if (candidate) {
             stableHits = (stableHits + 1).coerceAtMost(5)
@@ -87,6 +90,7 @@ class LiveScreenDetector {
         } else {
             missHits = (missHits + 1).coerceAtMost(6)
             stableHits = max(0, stableHits - 1)
+            movementHits = max(0, movementHits - 1)
             confidence = (confidence - 0.12).coerceAtLeast(0.0)
         }
 

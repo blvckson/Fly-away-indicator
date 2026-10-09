@@ -74,7 +74,11 @@ class LiveScreenDetector {
         // required for live-screen gating.
         val central = centralAppearance(frame)
         val sceneScore = planeScore * 0.58 + central * 0.30 + brightScore * 0.12
-        val candidate = sceneScore >= 0.25 && (planeScore >= 0.15 || movementScore >= 0.14)
+        // Require both a strong red aircraft-like signal and the central Aviator play area.
+        // Screen-wide motion or a red button by itself must not start a round.
+        val candidate = sceneScore >= 0.30 &&
+            planeScore >= 0.16 && central >= 0.10 &&
+            (movementScore >= 0.04 || stableHits >= 1)
 
         if (candidate) {
             stableHits = (stableHits + 1).coerceAtMost(5)
@@ -87,7 +91,7 @@ class LiveScreenDetector {
         }
 
         // Short visual dropouts are tolerated; sustained absence still ends the round.
-        val live = confidence >= 0.20 && missHits < 4
+        val live = confidence >= 0.48 && stableHits >= 3 && missHits < 3
         return LiveScreenState(live, planeScore, central, sceneScore,
             if(sw>3.0) (sx/sw).toFloat() else Float.NaN,
             if(sw>3.0) (sy/sw).toFloat() else Float.NaN)

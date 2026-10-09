@@ -75,13 +75,15 @@ class LiveScreenDetector {
         // required for live-screen gating.
         val central = centralAppearance(frame)
         val sceneScore = planeScore * 0.58 + central * 0.30 + brightScore * 0.12
-        // Require repeated movement of the red aircraft-like signal as well as
-        // central game visuals. Static red buttons, logos, and unrelated page changes
-        // are not sufficient evidence of an active round.
-        if (movementScore >= 0.025) movementHits = (movementHits + 1).coerceAtMost(5)
+        // Use tolerant visual thresholds because Aviator layouts, scaling and
+        // device rendering vary. Require the central game area and red visual signal
+        // to persist across frames; movement helps confirm the scene but is not mandatory
+        // when the aircraft is briefly stationary or the captured frames are identical.
+        if (movementScore >= 0.012) movementHits = (movementHits + 1).coerceAtMost(5)
         else movementHits = max(0, movementHits - 1)
-        val candidate = sceneScore >= 0.30 &&
-            planeScore >= 0.16 && central >= 0.10 && movementHits >= 2
+        val candidate = sceneScore >= 0.18 &&
+            planeScore >= 0.045 && central >= 0.035 &&
+            (movementHits >= 1 || stableHits >= 1)
 
         if (candidate) {
             stableHits = (stableHits + 1).coerceAtMost(5)

@@ -81,9 +81,11 @@ class LiveScreenDetector {
         // when the aircraft is briefly stationary or the captured frames are identical.
         if (movementScore >= 0.012) movementHits = (movementHits + 1).coerceAtMost(5)
         else movementHits = max(0, movementHits - 1)
+        // First-frame acceptance must not depend on movementHits or stableHits:
+        // those counters are only produced after a candidate is accepted.
+        // This circular gate can leave the detector stuck on WAITING.
         val candidate = sceneScore >= 0.18 &&
-            planeScore >= 0.045 && central >= 0.035 &&
-            (movementHits >= 1 || stableHits >= 1)
+            planeScore >= 0.045 && central >= 0.035
 
         if (candidate) {
             stableHits = (stableHits + 1).coerceAtMost(5)

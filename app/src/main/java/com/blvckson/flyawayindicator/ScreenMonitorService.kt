@@ -46,6 +46,8 @@ class ScreenMonitorService : Service() {
     private var recording=false
     private var missing=0
     private var liveMisses=0
+    private var liveConfirmHits=0
+    private var roundFrames=0
     private var lastFrame:Bitmap?=null
     private var lastPlaneX=Float.NaN
     private var lastPlaneY=Float.NaN
@@ -127,10 +129,13 @@ class ScreenMonitorService : Service() {
         preScore=preScore*0.72+preCandidate*0.28
         if(preScore>=0.62)preHold++ else preHold=max(0,preHold-1)
 
-        if(state.isLive || (!recording && state.sceneScore >= 0.20 && state.planeScore >= 0.05)){
+        val credibleLive = state.isLive && state.sceneScore >= 0.28 && (state.planeScore >= 0.15 || lastMove >= 0.12)
+        if(credibleLive){
             liveMisses=0
-            if(!recording)startRound(w,h,density)
+            liveConfirmHits=(liveConfirmHits+1).coerceAtMost(6)
+            if(!recording && liveConfirmHits >= 3) startRound(w,h,density)
         }else{
+            liveConfirmHits=max(0,liveConfirmHits-1)
             liveMisses=(liveMisses+1).coerceAtMost(6)
         }
 
@@ -144,7 +149,8 @@ class ScreenMonitorService : Service() {
             }else{
                 publish("RECORDING ROUND $round",false,"Whole Aviator live screen is being recorded; visual and plane behaviour are being tracked.")
             }
-            if(liveMisses>=2)finishRound()
+            if(liveMisses>=4 && roundFrames>=12)finishRound()
+            else roundFrames++
         }
 
         lastFrame?.recycle()
@@ -153,6 +159,8 @@ class ScreenMonitorService : Service() {
 
     private fun startRound(w:Int,h:Int,density:Int){
         round=nextRound++
+        roundFrames=0
+        liveConfirmHits=0
         missing=0
         liveMisses=0
         preScore=0.0
@@ -179,6 +187,8 @@ class ScreenMonitorService : Service() {
         round=0
         missing=0
         liveMisses=0
+        liveConfirmHits=0
+        roundFrames=0
         preHold=0
         preScore=0.0
         analysisHandler.post{

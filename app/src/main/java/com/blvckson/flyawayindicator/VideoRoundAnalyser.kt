@@ -35,7 +35,7 @@ class VideoRoundAnalyser {
             if(duration<200L) return VideoAnalysis(0.0,0.0,"","Round video was too short for analysis.")
 
             // Sample the complete round, not just its first few seconds.
-            val count=64
+            val count=28
             val frames=ArrayList<Bitmap>(count)
             for(i in 0 until count){
                 val us=if(count==1) 0L else (i.toLong()*(duration*1000L))/(count-1L)
@@ -55,7 +55,7 @@ class VideoRoundAnalyser {
             val early=signature(frames.subList(0,split))
             val late=signature(frames.subList(lateStart,frames.size))
             val difference=visualDifference(early,late)
-            val redEnd=readEndingMultiplier(frames.takeLast(10))
+            val redEnd=readEndingMultiplier(frames.takeLast(6))
 
             val currentSig=encode(late)
             val similarity=compareWithHistory(currentSig,previous)
@@ -85,44 +85,51 @@ class VideoRoundAnalyser {
     private fun readEndingMultiplier(frames: List<Bitmap>): String {
         val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
         try {
-            // Read several final frames: the red result may only be visible briefly.
-            for (frame in frames.asReversed()) {
+            // Final multiplier is normally red and near the central game area.
+            // Upscale the crop before OCR because recorded analysis frames are downsampled.
+            for (frame in frames.asReversed().take(6)) {
+                var crop: Bitmap? = null
                 var mask: Bitmap? = null
+                var enlarged: Bitmap? = null
                 try {
-                    val left=(frame.width*0.12f).toInt()
-                    val top=(frame.height*0.08f).toInt()
-                    val right=(frame.width*0.88f).toInt()
-                    val bottom=(frame.height*0.62f).toInt()
+                    val left=(frame.width*0.16f).toInt()
+                    val top=(frame.height*0.10f).toInt()
+                    val right=(frame.width*0.84f).toInt()
+                    val bottom=(frame.height*0.60f).toInt()
                     val w=(right-left).coerceAtLeast(1)
                     val h=(bottom-top).coerceAtLeast(1)
-                    val crop=Bitmap.createBitmap(frame,left,top,w,h)
+                    crop=Bitmap.createBitmap(frame,left,top,w,h)
                     mask=Bitmap.createBitmap(w,h,Bitmap.Config.ARGB_8888)
                     val pixels=IntArray(w*h)
                     crop.getPixels(pixels,0,w,0,0,w,h)
-                    crop.recycle()
                     for(i in pixels.indices){
-                        val c=pixels[i]
-                        val rr=Color.red(c); val g=Color.green(c); val b=Color.blue(c)
-                        pixels[i]=if(rr>95 && rr-maxOf(g,b)>18 && rr>g*1.08 && rr>b*1.08) Color.WHITE else Color.BLACK
+                        val color=pixels[i]
+                        val rr=Color.red(color); val g=Color.green(color); val b=Color.blue(color)
+                        // Preserve red digits as high-contrast white glyphs on black.
+                        pixels[i]=if(rr>75 && rr-maxOf(g,b)>14 && rr>g*1.06 && rr>b*1.06) Color.WHITE else Color.BLACK
                     }
                     mask.setPixels(pixels,0,w,0,0,w,h)
+                    enlarged=Bitmap.createScaledBitmap(mask,w*2,h*2,true)
                     val text=Tasks.await(
-                        recognizer.process(InputImage.fromBitmap(mask,0)),
-                        700, TimeUnit.MILLISECONDS
+                        recognizer.process(InputImage.fromBitmap(enlarged,0)),
+                        450, TimeUnit.MILLISECONDS
                     ).text
                     val cleaned=text.replace(',','.').replace('O','0').replace('o','0')
                         .replace('I','1').replace('l','1')
                     val matcher=Pattern.compile("(\\d{1,7}(?:\\.\\d{1,4})?)\\s*[xX]?").matcher(cleaned)
                     var best=Double.NaN
                     while(matcher.find()){
-                        val v=matcher.group(1)?.toDoubleOrNull() ?: continue
+                        val token=matcher.group(1) ?: continue
+                        val v=token.toDoubleOrNull() ?: continue
                         if(v>=1.0 && v<=10000000.0 && (best.isNaN() || v>best)) best=v
                     }
                     if(!best.isNaN()) return "%.2fx".format(Locale.US,best)
                 } catch (_: Throwable) {
-                    // Try the next ending frame.
+                    // OCR is best-effort; keep trying the preceding captured ending frame.
                 } finally {
+                    try { enlarged?.recycle() } catch (_: Throwable) {}
                     try { mask?.recycle() } catch (_: Throwable) {}
+                    try { crop?.recycle() } catch (_: Throwable) {}
                 }
             }
         } finally {

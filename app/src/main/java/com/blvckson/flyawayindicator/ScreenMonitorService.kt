@@ -191,12 +191,16 @@ class ScreenMonitorService : Service() {
         roundFrames=0
         preHold=0
         preScore=0.0
+        val savedPath=file?.absolutePath?:""
+        // Persist a placeholder immediately; slow video analysis must never block round history.
+        store.add(RoundRecord(savedRound,savedEnding,savedPath,0.0,0.0,"Round saved; visual analysis pending."))
+        publish("ROUND $savedRound SAVED — ANALYSIS PENDING",false,"Round $savedRound has been stored. Final multiplier and analysis are being completed.")
         analysisHandler.post{
             val analysis=if(file!=null) videoAnalyser.analyse(file,previous)
             else VideoAnalysis(0.0,0.0,"","No video file was produced.")
             val finalMultiplier=if(savedEnding.isNotBlank())savedEnding else analysis.redEndMultiplier
             val statement="Difference earlier → pre-fly-away: %.0f%%. Pre-fly-away visual consistency against recorded rounds: %.0f%%. %s".format(analysis.difference,analysis.preSimilarity,analysis.statement)
-            store.add(RoundRecord(savedRound,finalMultiplier,file?.absolutePath?:"",analysis.difference,analysis.preSimilarity,statement,analysis.behaviourSignature))
+            store.add(RoundRecord(savedRound,finalMultiplier,savedPath,analysis.difference,analysis.preSimilarity,statement,analysis.behaviourSignature))
             publish("ROUND $savedRound SAVED",false,statement)
         }
     }

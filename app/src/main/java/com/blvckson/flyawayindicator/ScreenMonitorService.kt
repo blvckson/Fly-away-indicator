@@ -129,7 +129,10 @@ class ScreenMonitorService : Service() {
         preScore=preScore*0.72+preCandidate*0.28
         if(preScore>=0.62)preHold++ else preHold=max(0,preHold-1)
 
-        val credibleLive = state.isLive && state.sceneScore >= 0.28 && (state.planeScore >= 0.15 || lastMove >= 0.12)
+        val credibleLive = state.isLive &&
+            state.sceneScore >= 0.30 &&
+            state.planeScore >= 0.16 &&
+            state.multiplierVisualScore >= 0.10
         if(credibleLive){
             liveMisses=0
             liveConfirmHits=(liveConfirmHits+1).coerceAtMost(6)

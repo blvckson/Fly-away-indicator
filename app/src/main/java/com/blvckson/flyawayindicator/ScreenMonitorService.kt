@@ -129,10 +129,12 @@ class ScreenMonitorService : Service() {
         preScore=preScore*0.72+preCandidate*0.28
         if(preScore>=0.62)preHold++ else preHold=max(0,preHold-1)
 
+        // Match the detector's calibrated thresholds; duplicate strict gating here
+        // could keep the overlay on WAITING even when detector evidence existed.
         val credibleLive = state.isLive &&
-            state.sceneScore >= 0.30 &&
-            state.planeScore >= 0.16 &&
-            state.multiplierVisualScore >= 0.10
+            state.sceneScore >= 0.18 &&
+            state.planeScore >= 0.045 &&
+            state.multiplierVisualScore >= 0.035
         if(credibleLive){
             liveMisses=0
             liveConfirmHits=(liveConfirmHits+1).coerceAtMost(6)

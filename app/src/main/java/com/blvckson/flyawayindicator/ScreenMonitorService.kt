@@ -145,10 +145,8 @@ class ScreenMonitorService : Service() {
         }
 
         if(recording){
-            if(System.currentTimeMillis()-lastRedRead>=80L){
-                lastRedRead=System.currentTimeMillis()
-                redReader.inspect(frame){v->endingMultiplier=v}
-            }
+            // Do not OCR/read the multiplier from live frames. The final red
+            // multiplier is extracted later from the saved round video.
             if(preHold>=3){
                 publish("PRE-FLY-AWAY DETECTED",true,"Pre-fly-away visual/behavioural transition detected. Red indicator ON.")
             }else{

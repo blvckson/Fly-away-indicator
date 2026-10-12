@@ -2,7 +2,7 @@ name: Android Build
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, recorded-video-analysis ]
   workflow_dispatch:
 
 jobs:

@@ -34,8 +34,10 @@ class VideoRoundAnalyser {
             val duration=r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()?:0L
             if(duration<200L) return VideoAnalysis(0.0,0.0,"","Round video was too short for analysis.")
 
-            // Sample the complete round, not just its first few seconds.
-            val count=28
+            // Scan the saved recording, not live frames. Decode a dense timeline
+            // (about 10 frames/second, capped to protect older Android devices).
+            // This preserves far more visual detail than sparse whole-video sampling.
+            val count=((duration/100L).toInt()).coerceIn(8,600)
             val frames=ArrayList<Bitmap>(count)
             for(i in 0 until count){
                 val us=if(count==1) 0L else (i.toLong()*(duration*1000L))/(count-1L)
@@ -50,25 +52,37 @@ class VideoRoundAnalyser {
             }
             if(frames.size<8) return VideoAnalysis(0.0,0.0,"","Not enough visual frames for comparison.")
 
-            val split=(frames.size*0.60).toInt().coerceIn(2,frames.size-2)
-            val lateStart=(frames.size*0.74).toInt().coerceIn(split+1,frames.size-1)
-            val early=signature(frames.subList(0,split))
-            val late=signature(frames.subList(lateStart,frames.size))
-            val difference=visualDifference(early,late)
-            val redEnd=readEndingMultiplier(frames.takeLast(6))
+            // Divide the recorded round into early, middle, pre-fly-away, and
+            // ending-transition sections. Keep the final transition out of the
+            // pre-fly-away signature so it does not distort behaviour similarity.
+            val earlyEnd=(frames.size*0.40).toInt().coerceIn(2,frames.size-4)
+            val middleEnd=(frames.size*0.68).toInt().coerceIn(earlyEnd+1,frames.size-3)
+            val preStart=(frames.size*0.70).toInt().coerceIn(middleEnd,frames.size-2)
+            val preEnd=(frames.size*0.90).toInt().coerceIn(preStart+1,frames.size-1)
+            val early=signature(frames.subList(0,earlyEnd))
+            val middle=signature(frames.subList(earlyEnd,middleEnd))
+            val preFly=signature(frames.subList(preStart,preEnd))
+            val differenceEarly=visualDifference(early,preFly)
+            val differenceMiddle=visualDifference(middle,preFly)
+            // Overall pre-fly-away difference compares the pre-fly-away section
+            // against both earlier stages, not only one selected portion.
+            val overallDifference=(differenceEarly*0.5 + differenceMiddle*0.5)
+            val redEnd=readEndingMultiplier(frames.takeLast(10))
 
-            val currentSig=encode(late)
+            val currentSig=encode(preFly)
             val similarity=compareWithHistory(currentSig,previous)
-            val stageDifference=stageDifference(frames,split,lateStart)
+            val transitionDifference=visualDifference(middle,preFly)
             frames.forEach{it.recycle()}
 
             val statement=when{
-                difference>=0.70 -> "Strong visual/behavioural change from the earlier stage into the pre-fly-away stage."
-                difference>=0.45 -> "Clear visual/behavioural change from the earlier stage into the pre-fly-away stage."
-                else -> "The pre-fly-away stage remained relatively similar to earlier activity."
-            }
+                overallDifference>=0.70 -> "Overall pre-fly-away behaviour is strongly different from earlier round stages."
+                overallDifference>=0.45 -> "Overall pre-fly-away behaviour shows a clear difference from earlier round stages."
+                else -> "Overall pre-fly-away behaviour remains relatively similar to earlier round stages."
+            } + " Early-stage difference: %.0f%%; middle-stage difference: %.0f%%.".format(
+                differenceEarly*100.0,differenceMiddle*100.0
+            )
             VideoAnalysis(
-                (difference*0.65 + stageDifference*0.35)*100.0,
+                (overallDifference*0.80 + transitionDifference*0.20)*100.0,
                 similarity*100.0,
                 redEnd,
                 statement,

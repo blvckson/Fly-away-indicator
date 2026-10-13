@@ -13,6 +13,8 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.WindowManager
 import android.widget.TextView
+import android.widget.ImageView
+import android.widget.LinearLayout
 import java.util.ArrayDeque
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -44,6 +46,12 @@ class ScreenMonitorService : Service() {
     private lateinit var handler:Handler
     private lateinit var main:Handler
     private var overlay:TextView?=null
+    private var preview:ImageView?=null
+    private var overlayContainer:LinearLayout?=null
+    private var previewBitmap:Bitmap?=null
+    private var lastPreviewUpdate=0L
+    private var previewWidth=220
+    private var previewHeight=390
     private var wm:WindowManager?=null
     private val overlayEvents=ArrayDeque<String>()
     private var lastLoggedStatus=""
@@ -117,6 +125,7 @@ class ScreenMonitorService : Service() {
                 raw.copyPixelsFromBuffer(p.buffer)
                 val frame=if(padded==w) raw else Bitmap.createBitmap(raw,0,0,w,h)
                 if(frame!==raw)raw.recycle()
+                updateLivePreview(frame)
                 processFrame(frame,w,h,m.densityDpi)
                 frame.recycle()
             }catch(_:Throwable){}finally{image.close()}
@@ -298,17 +307,42 @@ class ScreenMonitorService : Service() {
         return "$marker$status\n$recordingLine\n$multiplier\n$analysis\n— Recent activity (oldest → newest) —\n$current\nDrag to move · tap to collapse · pinch to resize"
     }
 
+    // Display the actual bitmap delivered by MediaProjection/ImageReader.
+    // Updates are throttled to keep the UI responsive while capture stays full rate.
+    private fun updateLivePreview(frame:Bitmap){
+        val now=System.currentTimeMillis()
+        if(now-lastPreviewUpdate<100L)return
+        lastPreviewUpdate=now
+        val copy=try{Bitmap.createScaledBitmap(frame,previewWidth,previewHeight,true)}catch(_:Throwable){return}
+        main.post{
+            val old=previewBitmap
+            previewBitmap=copy
+            preview?.setImageBitmap(copy)
+            if(old!==copy)old?.recycle()
+        }
+    }
+
     private fun showOverlay(){
         wm=getSystemService(WINDOW_SERVICE) as WindowManager
-        val tv=TextView(this)
-        tv.text="● WAITING FOR AVIATOR\nRecorder: OFF\nFinal multiplier: reading / not confirmed\nTap to expand · pinch to resize"
-        tv.textSize=overlayTextSize
-        tv.setTextColor(0xFFFFFFFF.toInt());tv.setBackgroundColor(0xE6202124.toInt());tv.setPadding(14,10,14,10)
+        val panel=LinearLayout(this)
+        panel.orientation=LinearLayout.VERTICAL
+        panel.setBackgroundColor(0xE6202124.toInt())
+        val image=ImageView(this)
+        image.scaleType=ImageView.ScaleType.FIT_CENTER
+        image.setBackgroundColor(0xFF101010.toInt())
+        image.layoutParams=LinearLayout.LayoutParams(previewWidth,previewHeight)
+        val label=TextView(this)
+        label.text="● WAITING FOR AVIATOR\nLIVE CAPTURE PREVIEW — waiting for first frame\nDrag to move · tap to hide/show preview · pinch to resize"
+        label.textSize=overlayTextSize
+        label.setTextColor(0xFFFFFFFF.toInt())
+        label.setPadding(10,8,10,8)
+        panel.addView(image)
+        panel.addView(label)
         val lp=WindowManager.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT,WindowManager.LayoutParams.WRAP_CONTENT,WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,PixelFormat.TRANSLUCENT)
         lp.gravity=Gravity.TOP or Gravity.START
         lp.x=overlayPrefs.getInt("x",24).coerceAtLeast(0)
         lp.y=overlayPrefs.getInt("y",80).coerceAtLeast(0)
-        tv.setOnTouchListener{_,e->when(e.actionMasked){
+        panel.setOnTouchListener{_,e->when(e.actionMasked){
             MotionEvent.ACTION_DOWN->{
                 touchDownX=e.rawX;touchDownY=e.rawY;touchStartX=lp.x;touchStartY=lp.y;touchMoved=false
                 true
@@ -316,7 +350,7 @@ class ScreenMonitorService : Service() {
             MotionEvent.ACTION_POINTER_DOWN->{
                 if(e.pointerCount>=2){
                     pinchStartDistance=pointerDistance(e)
-                    pinchStartSize=overlayTextSize
+                    pinchStartSize=previewWidth.toFloat()
                 }
                 true
             }
@@ -324,9 +358,18 @@ class ScreenMonitorService : Service() {
                 if(e.pointerCount>=2 && pinchStartDistance>0f){
                     val distance=pointerDistance(e)
                     if(distance>0f){
-                        overlayTextSize=(pinchStartSize*distance/pinchStartDistance).coerceIn(10f,24f)
-                        tv.textSize=overlayTextSize
-                        overlayPrefs.edit().putFloat("text_size",overlayTextSize).apply()
+                        val scale=(distance/pinchStartDistance).coerceIn(0.65f,1.7f)
+                        previewWidth=(pinchStartSize*scale).toInt().coerceIn(120,420)
+                        previewHeight=(previewWidth*resources.displayMetrics.heightPixels.toFloat()/resources.displayMetrics.widthPixels.toFloat()).toInt().coerceIn(180,760)
+                        image.layoutParams=LinearLayout.LayoutParams(previewWidth,previewHeight)
+                        previewWidth=previewWidth
+                        previewHeight=previewHeight
+                        previewBitmap?.let{bmp->
+                            val resized=try{Bitmap.createScaledBitmap(bmp,previewWidth,previewHeight,true)}catch(_:Throwable){null}
+                            if(resized!=null){previewBitmap=resized;image.setImageBitmap(resized)}
+                        }
+                        panel.requestLayout()
+                        overlayPrefs.edit().putInt("preview_width",previewWidth).putInt("preview_height",previewHeight).apply()
                         touchMoved=true
                     }
                 }else if(e.pointerCount==1){
@@ -334,25 +377,31 @@ class ScreenMonitorService : Service() {
                     if(kotlin.math.abs(dx)>6 || kotlin.math.abs(dy)>6) touchMoved=true
                     lp.x=(touchStartX+dx.toInt()).coerceAtLeast(0)
                     lp.y=(touchStartY+dy.toInt()).coerceAtLeast(0)
-                    wm?.updateViewLayout(tv,lp)
+                    wm?.updateViewLayout(panel,lp)
                 }
                 true
             }
             MotionEvent.ACTION_POINTER_UP->{pinchStartDistance=0f;true}
             MotionEvent.ACTION_UP->{
                 if(!touchMoved){
-                    overlayExpanded=!overlayExpanded
-                    overlayPrefs.edit().putBoolean("expanded",overlayExpanded).putInt("x",lp.x).putInt("y",lp.y).apply()
-                    tv.text=buildOverlayText(if(recording) "RECORDING ROUND $round" else "WAITING FOR AVIATOR",preHold>=3)
-                }else{
-                    overlayPrefs.edit().putInt("x",lp.x).putInt("y",lp.y).apply()
+                    val visible=image.visibility==android.view.View.VISIBLE
+                    image.visibility=if(visible) android.view.View.GONE else android.view.View.VISIBLE
+                    label.text=buildOverlayText(if(recording) "RECORDING ROUND $round" else "WAITING FOR AVIATOR",preHold>=3)
+                    if(!visible) label.text=label.text.toString()+"\nLive preview: actual captured screen"
                 }
+                overlayPrefs.edit().putInt("x",lp.x).putInt("y",lp.y).apply()
                 pinchStartDistance=0f
                 true
             }
             else->true
         }}
-        wm?.addView(tv,lp);overlay=tv
+        wm?.addView(panel,lp)
+        overlayContainer=panel
+        overlay=label
+        preview=image
+        previewWidth=overlayPrefs.getInt("preview_width",previewWidth).coerceIn(120,420)
+        previewHeight=overlayPrefs.getInt("preview_height",previewHeight).coerceIn(180,760)
+        image.layoutParams=LinearLayout.LayoutParams(previewWidth,previewHeight)
     }
 
     private fun pointerDistance(e:MotionEvent):Float{
@@ -374,7 +423,8 @@ class ScreenMonitorService : Service() {
         recorder?.release();recorder=null
         lastFrame?.recycle();lastFrame=null
         redReader.close()
-        overlay?.let{wm?.removeView(it)};overlay=null
+        overlayContainer?.let{wm?.removeView(it)};overlayContainer=null;overlay=null;preview=null
+        previewBitmap?.recycle();previewBitmap=null
         thread.quitSafely()
         if(::analysisThread.isInitialized) analysisThread.quitSafely()
         super.onDestroy()

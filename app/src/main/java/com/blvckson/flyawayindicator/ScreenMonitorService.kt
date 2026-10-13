@@ -14,6 +14,9 @@ import android.view.MotionEvent
 import android.view.WindowManager
 import android.widget.TextView
 import java.util.ArrayDeque
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.sqrt
@@ -42,6 +45,18 @@ class ScreenMonitorService : Service() {
     private lateinit var main:Handler
     private var overlay:TextView?=null
     private var wm:WindowManager?=null
+    private val overlayEvents=ArrayDeque<String>()
+    private var lastLoggedStatus=""
+    private var overlayExpanded=true
+    private var overlayTextSize=13f
+    private var pinchStartDistance=0f
+    private var pinchStartSize=13f
+    private var touchDownX=0f
+    private var touchDownY=0f
+    private var touchStartX=0
+    private var touchStartY=0
+    private var touchMoved=false
+    private val overlayPrefs by lazy { getSharedPreferences("overlay_display", MODE_PRIVATE) }
     private var round=0
     private var recording=false
     private var missing=0
@@ -68,6 +83,8 @@ class ScreenMonitorService : Service() {
         thread.start()
         handler=Handler(thread.looper)
         main=Handler(Looper.getMainLooper())
+        overlayTextSize=overlayPrefs.getFloat("text_size",13f).coerceIn(10f,24f)
+        overlayExpanded=overlayPrefs.getBoolean("expanded",true)
         showOverlay()
     }
 
@@ -246,27 +263,103 @@ class ScreenMonitorService : Service() {
     }
 
     private fun publish(status:String,pre:Boolean,statement:String){
+        // Log only state transitions, never every captured frame. This keeps the
+        // overlay in the same chronological order as the recorder/analyser stages.
+        if(status!=lastLoggedStatus){
+            val stamp=SimpleDateFormat("HH:mm:ss",Locale.US).format(Date())
+            overlayEvents.addLast("$stamp  $status")
+            while(overlayEvents.size>6) overlayEvents.removeFirst()
+            lastLoggedStatus=status
+        } else if(status.contains("SAVED") && statement.isNotBlank() &&
+            (overlayEvents.isEmpty() || !overlayEvents.last().contains("analysis complete",true))) {
+            val stamp=SimpleDateFormat("HH:mm:ss",Locale.US).format(Date())
+            if(status=="ROUND $round SAVED") {
+                overlayEvents.addLast("$stamp  Round analysis complete")
+                while(overlayEvents.size>6) overlayEvents.removeFirst()
+            }
+        }
         main.post{
-            overlay?.text=(if(pre)"●  🔴 " else "●  ")+status
+            overlay?.text=buildOverlayText(status,pre)
+            overlay?.textSize=overlayTextSize
             overlay?.setTextColor(0xFFFFFFFF.toInt())
-            overlay?.setBackgroundColor(when { pre -> 0xFFE53935.toInt(); recording -> 0xFF2E7D32.toInt(); else -> 0xCC202124.toInt() })
+            overlay?.setBackgroundColor(when { pre -> 0xFFE53935.toInt(); recording -> 0xFF2E7D32.toInt(); else -> 0xE6202124.toInt() })
         }
         sendBroadcast(Intent(ACTION_STATUS).putExtra(EXTRA_STATUS,status).putExtra(EXTRA_STATEMENT,statement).putExtra(EXTRA_RED,pre).putExtra(EXTRA_ROUNDS,store.all().size))
     }
 
+    private fun buildOverlayText(status:String,pre:Boolean):String {
+        val marker=if(pre) "● 🔴 " else if(recording) "● REC " else "● "
+        if(!overlayExpanded) return marker+status+"\nTap to expand · pinch to resize"
+        val history=overlayEvents.toList().takeLast(5).joinToString("\n")
+        val current=if(history.isBlank()) "Waiting for Aviator screen confirmation" else history
+        val recordingLine=if(recording) "Recorder: ON · Round $round · Frames $roundFrames" else "Recorder: OFF"
+        val multiplier=if(endingMultiplier.isBlank()) "Final multiplier: reading / not confirmed" else "Final multiplier: $endingMultiplier"
+        val analysis=if(status.contains("ANALYSIS PENDING")) "Analysis: queued" else if(status.contains("analysis complete",true) || status.contains("SAVED",true)) "Analysis: processing / saved" else "Analysis: waiting for round end"
+        return "$marker$status\n$recordingLine\n$multiplier\n$analysis\n— Recent activity (oldest → newest) —\n$current\nDrag to move · tap to collapse · pinch to resize"
+    }
+
     private fun showOverlay(){
         wm=getSystemService(WINDOW_SERVICE) as WindowManager
-        val tv=TextView(this);tv.text="●  WAITING FOR AVIATOR";tv.textSize=13f
-        tv.setTextColor(0xFFFFFFFF.toInt());tv.setBackgroundColor(0xCC202124.toInt());tv.setPadding(18,10,18,10)
+        val tv=TextView(this)
+        tv.text="● WAITING FOR AVIATOR\nRecorder: OFF\nFinal multiplier: reading / not confirmed\nTap to expand · pinch to resize"
+        tv.textSize=overlayTextSize
+        tv.setTextColor(0xFFFFFFFF.toInt());tv.setBackgroundColor(0xE6202124.toInt());tv.setPadding(14,10,14,10)
         val lp=WindowManager.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT,WindowManager.LayoutParams.WRAP_CONTENT,WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,PixelFormat.TRANSLUCENT)
-        lp.gravity=Gravity.TOP or Gravity.START;lp.x=24;lp.y=80
-        var dx=0f;var dy=0f;var sx=0;var sy=0
+        lp.gravity=Gravity.TOP or Gravity.START
+        lp.x=overlayPrefs.getInt("x",24).coerceAtLeast(0)
+        lp.y=overlayPrefs.getInt("y",80).coerceAtLeast(0)
         tv.setOnTouchListener{_,e->when(e.actionMasked){
-            MotionEvent.ACTION_DOWN->{dx=e.rawX;dy=e.rawY;sx=lp.x;sy=lp.y;true}
-            MotionEvent.ACTION_MOVE->{lp.x=sx+(e.rawX-dx).toInt();lp.y=sy+(e.rawY-dy).toInt();wm?.updateViewLayout(tv,lp);true}
+            MotionEvent.ACTION_DOWN->{
+                touchDownX=e.rawX;touchDownY=e.rawY;touchStartX=lp.x;touchStartY=lp.y;touchMoved=false
+                true
+            }
+            MotionEvent.ACTION_POINTER_DOWN->{
+                if(e.pointerCount>=2){
+                    pinchStartDistance=pointerDistance(e)
+                    pinchStartSize=overlayTextSize
+                }
+                true
+            }
+            MotionEvent.ACTION_MOVE->{
+                if(e.pointerCount>=2 && pinchStartDistance>0f){
+                    val distance=pointerDistance(e)
+                    if(distance>0f){
+                        overlayTextSize=(pinchStartSize*distance/pinchStartDistance).coerceIn(10f,24f)
+                        tv.textSize=overlayTextSize
+                        overlayPrefs.edit().putFloat("text_size",overlayTextSize).apply()
+                        touchMoved=true
+                    }
+                }else if(e.pointerCount==1){
+                    val dx=e.rawX-touchDownX;val dy=e.rawY-touchDownY
+                    if(kotlin.math.abs(dx)>6 || kotlin.math.abs(dy)>6) touchMoved=true
+                    lp.x=(touchStartX+dx.toInt()).coerceAtLeast(0)
+                    lp.y=(touchStartY+dy.toInt()).coerceAtLeast(0)
+                    wm?.updateViewLayout(tv,lp)
+                }
+                true
+            }
+            MotionEvent.ACTION_POINTER_UP->{pinchStartDistance=0f;true}
+            MotionEvent.ACTION_UP->{
+                if(!touchMoved){
+                    overlayExpanded=!overlayExpanded
+                    overlayPrefs.edit().putBoolean("expanded",overlayExpanded).putInt("x",lp.x).putInt("y",lp.y).apply()
+                    tv.text=buildOverlayText(if(recording) "RECORDING ROUND $round" else "WAITING FOR AVIATOR",preHold>=3)
+                }else{
+                    overlayPrefs.edit().putInt("x",lp.x).putInt("y",lp.y).apply()
+                }
+                pinchStartDistance=0f
+                true
+            }
             else->true
         }}
         wm?.addView(tv,lp);overlay=tv
+    }
+
+    private fun pointerDistance(e:MotionEvent):Float{
+        if(e.pointerCount<2)return 0f
+        val dx=e.getX(0)-e.getX(1)
+        val dy=e.getY(0)-e.getY(1)
+        return kotlin.math.sqrt(dx*dx+dy*dy)
     }
 
     private fun notification():Notification{

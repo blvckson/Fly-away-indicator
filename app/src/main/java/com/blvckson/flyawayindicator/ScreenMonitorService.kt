@@ -36,6 +36,7 @@ class ScreenMonitorService : Service() {
     private var reader:ImageReader?=null
     private var recorder:RoundVideoRecorder?=null
     private val detector=LiveScreenDetector()
+    private val textVerifier=AviatorTextVerifier()
     private val videoAnalyser=VideoRoundAnalyser()
     private lateinit var analysisThread:HandlerThread
     private lateinit var analysisHandler:Handler
@@ -134,6 +135,9 @@ class ScreenMonitorService : Service() {
     }
 
     private fun processFrame(frame:Bitmap,w:Int,h:Int,density:Int){
+        // OCR runs asynchronously and only acts as a start-recording gate.
+        // A generic screen transition or a red UI element cannot start a round.
+        textVerifier.inspect(frame)
         val state=detector.inspect(frame)
         val change=lastFrame?.let{frameDifference(it,frame)} ?: 0.0
         recentChanges.addLast(change)
@@ -155,22 +159,25 @@ class ScreenMonitorService : Service() {
         preScore=preScore*0.72+preCandidate*0.28
         if(preScore>=0.62)preHold++ else preHold=max(0,preHold-1)
 
-        // Keep the recorder gate aligned with the stricter detector. A generic
-        // screen change or red text alone must never start a round recording.
-        val credibleLive = state.isLive &&
+        // Separate visual continuity from OCR start confirmation. Once a
+        // round has started, a temporary OCR miss must not stop its recording.
+        val visualLive = state.isLive &&
             state.sceneScore >= 0.16 &&
             state.planeScore >= 0.08 &&
             state.multiplierVisualScore >= 0.07
-        if(credibleLive){
-            liveMisses=0
-            liveConfirmHits=(liveConfirmHits+1).coerceAtMost(6)
-            if(!recording && liveConfirmHits >= 3) startRound(w,h,density)
-        }else{
-            liveConfirmHits=max(0,liveConfirmHits-1)
-            liveMisses=(liveMisses+1).coerceAtMost(6)
+
+        if(!recording){
+            if(visualLive && textVerifier.isVerified()){
+                liveConfirmHits=(liveConfirmHits+1).coerceAtMost(6)
+                if(liveConfirmHits >= 4) startRound(w,h,density)
+            }else{
+                // Reset instead of accumulating intermittent hits from unrelated pages.
+                liveConfirmHits=0
+            }
         }
 
         if(recording){
+            if(visualLive) liveMisses=0 else liveMisses=(liveMisses+1).coerceAtMost(6)
             if(System.currentTimeMillis()-lastRedRead>=80L){
                 lastRedRead=System.currentTimeMillis()
                 redReader.inspect(frame){v->endingMultiplier=v}
@@ -423,6 +430,7 @@ class ScreenMonitorService : Service() {
         recorder?.release();recorder=null
         lastFrame?.recycle();lastFrame=null
         redReader.close()
+        textVerifier.close()
         overlayContainer?.let{wm?.removeView(it)};overlayContainer=null;overlay=null;preview=null
         previewBitmap?.recycle();previewBitmap=null
         thread.quitSafely()

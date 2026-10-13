@@ -29,7 +29,9 @@ class LiveScreenDetector {
     fun inspect(frame: Bitmap): LiveScreenState {
         val w = frame.width
         val h = frame.height
-        val step = max(3, minOf(w, h) / 180)
+        // Use a denser scan so a small red plane on a portrait phone is not
+        // skipped between sample points. OCR remains a separate start gate.
+        val step = max(2, minOf(w, h) / 240)
         val gx0 = (w * 0.04).toInt()
         val gx1 = (w * 0.96).toInt()
         val gy0 = (h * 0.08).toInt()
@@ -100,8 +102,8 @@ class LiveScreenDetector {
             val aspect = bw.toDouble() / bh
             // Exclude broad red labels/buttons and tiny noise. Aircraft icon sizes
             // vary with screen scale, so these are deliberately coarse bounds.
-            val compact = count in 4..100 && bw <= 20 && bh <= 16 &&
-                aspect in 0.45..3.8
+            val compact = count in 2..160 && bw <= 30 && bh <= 22 &&
+                aspect in 0.35..4.8
             val cx = gx0 + (sumX / count * step).toFloat()
             val cy = gy0 + (sumY / count * step).toFloat()
             // Ignore the very bottom UI and the far edges where unrelated red
@@ -131,7 +133,7 @@ class LiveScreenDetector {
         }
 
         val central = centralAppearance(frame)
-        val planeScore = if (bestCount > 0) (bestCount / 24.0).coerceIn(0.08, 1.0) else 0.0
+        val planeScore = if (bestCount > 0) (bestCount / 16.0).coerceIn(0.08, 1.0) else 0.0
         val brightScore = bright.toDouble() / max(1, total)
         val sceneScore = (planeScore * 0.48 + central * 0.42 +
             brightScore.coerceIn(0.0, 1.0) * 0.10).coerceIn(0.0, 1.0)
@@ -139,8 +141,8 @@ class LiveScreenDetector {
         // A compact aircraft-like red object AND the central game area are both
         // mandatory. Require repeat confirmation; movement is supporting evidence,
         // not a hard requirement, to tolerate paused/low-frame-rate capture.
-        val candidate = bestCount in 4..100 &&
-            bestAspect in 0.45..3.8 &&
+        val candidate = bestCount in 2..160 &&
+            bestAspect in 0.35..4.8 &&
             central >= 0.07 &&
             sceneScore >= 0.16
 

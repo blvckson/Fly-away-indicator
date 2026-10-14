@@ -174,7 +174,7 @@ class ScreenMonitorService : Service() {
         if(!recording){
             if(visualLive && textVerifier.isVerified()){
                 liveConfirmHits=(liveConfirmHits+1).coerceAtMost(6)
-                if(liveConfirmHits >= 4) startRound(w,h,density)
+                if(liveConfirmHits >= 2) startRound(w,h,density)
             }else{
                 // Reset instead of accumulating intermittent hits from unrelated pages.
                 liveConfirmHits=0

@@ -100,7 +100,7 @@ class ScreenMonitorService : Service() {
 
     override fun onStartCommand(intent:Intent?,flags:Int,startId:Int):Int{
         if(intent?.action==ACTION_SHOW_OVERLAY){
-            if(overlayContainer==null && ::wm.isInitialized) showOverlay()
+            if(overlayContainer==null) showOverlay()
             return START_STICKY
         }
         val code=intent?.getIntExtra("resultCode",-1) ?: -1

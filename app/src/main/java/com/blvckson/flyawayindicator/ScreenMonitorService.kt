@@ -185,7 +185,7 @@ class ScreenMonitorService : Service() {
         }
 
         if(recording){
-            if(visualLive) liveMisses=0 else liveMisses=(liveMisses+1).coerceAtMost(6)
+            if(visualLive) liveMisses=0 else liveMisses=(liveMisses+1).coerceAtMost(60)
             if(System.currentTimeMillis()-lastRedRead>=80L){
                 lastRedRead=System.currentTimeMillis()
                 redReader.inspect(frame){v->

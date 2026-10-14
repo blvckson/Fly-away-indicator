@@ -2,6 +2,7 @@ package com.blvckson.flyawayindicator
 
 import android.content.Context
 import java.io.File
+import java.io.FileOutputStream
 
 data class RoundRecord(
     val round:Int,
@@ -25,7 +26,23 @@ class RoundRecordStore(context:Context) {
             val sig=r.behaviourSignature.replace("\t"," ").replace("\n"," ")
             listOf(r.round,r.endingMultiplier,r.videoPath,r.difference,r.preSimilarity,safe,sig).joinToString("\t")
         }
-        file.writeText(if(lines.isEmpty()) "" else lines.joinToString("\n")+"\n")
+        val payload=if(lines.isEmpty()) "" else lines.joinToString("\n")+"\n"
+        // Write and fsync a temporary file first so a process interruption
+        // cannot leave the saved-round index half-written.
+        val temp=File(file.parentFile, file.name+".tmp")
+        FileOutputStream(temp).use { stream ->
+            stream.write(payload.toByteArray(Charsets.UTF_8))
+            stream.flush()
+            stream.fd.sync()
+        }
+        if(!temp.renameTo(file)){
+            FileOutputStream(file).use { stream ->
+                stream.write(payload.toByteArray(Charsets.UTF_8))
+                stream.flush()
+                stream.fd.sync()
+            }
+            temp.delete()
+        }
     }
 
     @Synchronized fun all():List<RoundRecord>{

@@ -37,7 +37,10 @@ class VideoRoundAnalyser {
             // Sample the complete round, not just its first few seconds.
             // Denser temporal sampling catches short visual transitions and the exact crash ending.
             // Frames are downscaled before retention to keep memory bounded on low-RAM phones.
-            val count=56
+            // Dense, time-ordered sampling approximates slowed playback on low-RAM phones.
+            // Cap retained frames to keep memory bounded while inspecting the whole round,
+            // including the final disappearance/ending multiplier.
+            val count=(duration/100L).toInt().coerceIn(56,120)
             val frames=ArrayList<Bitmap>(count)
             for(i in 0 until count){
                 val us=if(count==1) 0L else (i.toLong()*(duration*1000L))/(count-1L)

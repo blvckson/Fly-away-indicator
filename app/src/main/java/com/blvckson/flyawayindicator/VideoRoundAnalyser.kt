@@ -35,12 +35,14 @@ class VideoRoundAnalyser {
             if(duration<200L) return VideoAnalysis(0.0,0.0,"","Round video was too short for analysis.")
 
             // Sample the complete round, not just its first few seconds.
-            val count=28
+            // Denser temporal sampling catches short visual transitions and the exact crash ending.
+            // Frames are downscaled before retention to keep memory bounded on low-RAM phones.
+            val count=56
             val frames=ArrayList<Bitmap>(count)
             for(i in 0 until count){
                 val us=if(count==1) 0L else (i.toLong()*(duration*1000L))/(count-1L)
                 val raw=r.getFrameAtTime(us,MediaMetadataRetriever.OPTION_CLOSEST) ?: continue
-                val scale=minOf(1.0,360.0/max(raw.width,raw.height).toDouble())
+                val scale=minOf(1.0,320.0/max(raw.width,raw.height).toDouble())
                 val b=if(scale<1.0) Bitmap.createScaledBitmap(
                     raw,(raw.width*scale).toInt().coerceAtLeast(2),
                     (raw.height*scale).toInt().coerceAtLeast(2),true

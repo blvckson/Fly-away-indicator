@@ -18,6 +18,7 @@ class AviatorTextVerifier {
     @Volatile private var consecutiveMatches = 0
     @Volatile private var lastResultAt = 0L
     @Volatile private var lastResult = "Waiting for Aviator text confirmation"
+    @Volatile private var endedUntil = 0L
 
     fun inspect(frame: Bitmap, now: Long = System.currentTimeMillis()) {
         if (busy || now - lastResultAt < 280L) return
@@ -44,6 +45,10 @@ class AviatorTextVerifier {
                     val text = result.text.lowercase(Locale.US)
                         .replace(',', '.')
                         .replace('×', 'x')
+                    if (text.contains("flew away") || text.contains("flewaway")) {
+                        endedUntil = System.currentTimeMillis() + 1600L
+                        lastResult = "Aviator round end confirmed: FLEW AWAY"
+                    }
                     val multiplier = Pattern.compile(
                         "\\b\\d{1,5}(?:\\.\\d{1,3})?\\s*x\\b",
                         Pattern.CASE_INSENSITIVE
@@ -89,6 +94,8 @@ class AviatorTextVerifier {
 
     fun isVerified(now: Long = System.currentTimeMillis()): Boolean =
         consecutiveMatches >= 2 && now <= verifiedUntil
+
+    fun isEndConfirmed(now: Long = System.currentTimeMillis()): Boolean = now <= endedUntil
 
     fun status(): String = lastResult
 

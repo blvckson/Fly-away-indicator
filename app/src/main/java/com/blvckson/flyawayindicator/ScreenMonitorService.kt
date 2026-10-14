@@ -30,6 +30,7 @@ class ScreenMonitorService : Service() {
         const val EXTRA_STATEMENT="statement"
         const val EXTRA_ROUNDS="rounds"
         const val EXTRA_RED="red"
+        const val ACTION_SHOW_OVERLAY="com.blvckson.flyawayindicator.SHOW_OVERLAY"
     }
 
     private var projection: MediaProjection?=null
@@ -98,6 +99,10 @@ class ScreenMonitorService : Service() {
     }
 
     override fun onStartCommand(intent:Intent?,flags:Int,startId:Int):Int{
+        if(intent?.action==ACTION_SHOW_OVERLAY){
+            if(overlayContainer==null && ::wm.isInitialized) showOverlay()
+            return START_STICKY
+        }
         val code=intent?.getIntExtra("resultCode",-1) ?: -1
         val data=intent?.getParcelableExtra<Intent>("data") ?: return START_NOT_STICKY
         val pm=getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
@@ -187,7 +192,9 @@ class ScreenMonitorService : Service() {
             }else{
                 publish("RECORDING ROUND $round",false,"Whole Aviator live screen is being recorded; visual and plane behaviour are being tracked.")
             }
-            if(liveMisses>=4 && roundFrames>=12)finishRound()
+            // Allow brief rendering/OCR/plane-detection gaps at the crash transition.
+            // A short miss burst must not truncate the video or split a single round.
+            if(liveMisses>=30 && roundFrames>=30)finishRound()
             else roundFrames++
         }
 
@@ -334,6 +341,26 @@ class ScreenMonitorService : Service() {
         val panel=LinearLayout(this)
         panel.orientation=LinearLayout.VERTICAL
         panel.setBackgroundColor(0xE6202124.toInt())
+        val titleBar=LinearLayout(this)
+        titleBar.orientation=LinearLayout.HORIZONTAL
+        titleBar.gravity=Gravity.CENTER_VERTICAL
+        val title=TextView(this)
+        title.text="Fly Away Indicator"
+        title.textSize=14f
+        title.setTextColor(0xFFFFFFFF.toInt())
+        title.setPadding(10,6,10,6)
+        title.layoutParams=LinearLayout.LayoutParams(0,LinearLayout.LayoutParams.WRAP_CONTENT,1f)
+        val close=TextView(this)
+        close.text="✕"
+        close.textSize=22f
+        close.gravity=Gravity.CENTER
+        close.setTextColor(0xFFFFFFFF.toInt())
+        close.contentDescription="Hide floating display"
+        close.setPadding(14,5,14,5)
+        close.isClickable=true
+        close.isFocusable=true
+        titleBar.addView(title)
+        titleBar.addView(close)
         val image=ImageView(this)
         image.scaleType=ImageView.ScaleType.FIT_CENTER
         image.setBackgroundColor(0xFF101010.toInt())
@@ -343,12 +370,20 @@ class ScreenMonitorService : Service() {
         label.textSize=overlayTextSize
         label.setTextColor(0xFFFFFFFF.toInt())
         label.setPadding(10,8,10,8)
+        panel.addView(titleBar)
         panel.addView(image)
         panel.addView(label)
         val lp=WindowManager.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT,WindowManager.LayoutParams.WRAP_CONTENT,WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,PixelFormat.TRANSLUCENT)
         lp.gravity=Gravity.TOP or Gravity.START
         lp.x=overlayPrefs.getInt("x",24).coerceAtLeast(0)
         lp.y=overlayPrefs.getInt("y",80).coerceAtLeast(0)
+        close.setOnClickListener{
+            // Hide only the floating UI. Recording, round saving and analysis keep running.
+            try { wm?.removeView(panel) } catch (_:Throwable) {}
+            overlayContainer=null
+            overlay=null
+            preview=null
+        }
         panel.setOnTouchListener{_,e->when(e.actionMasked){
             MotionEvent.ACTION_DOWN->{
                 touchDownX=e.rawX;touchDownY=e.rawY;touchStartX=lp.x;touchStartY=lp.y;touchMoved=false
@@ -421,7 +456,18 @@ class ScreenMonitorService : Service() {
     private fun notification():Notification{
         val nm=getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         nm.createNotificationChannel(NotificationChannel("scan","Fly Away Indicator",NotificationManager.IMPORTANCE_LOW))
-        return Notification.Builder(this,"scan").setContentTitle("Fly Away Indicator").setContentText("Monitoring Aviator live screen").setSmallIcon(android.R.drawable.ic_menu_view).build()
+        val restoreIntent=Intent(this,ScreenMonitorService::class.java).setAction(ACTION_SHOW_OVERLAY)
+        val restorePending=PendingIntent.getService(
+            this, 701, restoreIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        return Notification.Builder(this,"scan")
+            .setContentTitle("Fly Away Indicator")
+            .setContentText("Monitoring Aviator live screen · tap to show floating display")
+            .setSmallIcon(android.R.drawable.ic_menu_view)
+            .setContentIntent(restorePending)
+            .setOngoing(true)
+            .build()
     }
 
     override fun onDestroy(){

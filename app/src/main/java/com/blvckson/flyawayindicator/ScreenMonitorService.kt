@@ -80,6 +80,9 @@ class ScreenMonitorService : Service() {
     private var preScore=0.0
     private var preHold=0
     private var endingMultiplier=""
+    private var lastEndingCandidate=""
+    private var endingMultiplierHits=0
+    private var stableEndingFrames=0
     private var lastRedRead=0L
     private val recentChanges=ArrayDeque<Double>()
 
@@ -185,8 +188,18 @@ class ScreenMonitorService : Service() {
             if(visualLive) liveMisses=0 else liveMisses=(liveMisses+1).coerceAtMost(6)
             if(System.currentTimeMillis()-lastRedRead>=80L){
                 lastRedRead=System.currentTimeMillis()
-                redReader.inspect(frame){v->endingMultiplier=v}
+                redReader.inspect(frame){v->
+                    if(v.isNotBlank()){
+                        endingMultiplier=v
+                        if(v==lastEndingCandidate) endingMultiplierHits=(endingMultiplierHits+1).coerceAtMost(12)
+                        else { lastEndingCandidate=v; endingMultiplierHits=1 }
+                    }
+                }
             }
+            // A repeated red end multiplier is independent end evidence. Keep
+            // capturing briefly after it stabilizes so the ending transition is
+            // included, even if the visual plane detector remains falsely live.
+            if(endingMultiplierHits>=3) stableEndingFrames++ else stableEndingFrames=0
             if(preHold>=3){
                 publish("PRE-FLY-AWAY DETECTED",true,"Pre-fly-away visual/behavioural transition detected. Red indicator ON.")
             }else{
@@ -194,8 +207,11 @@ class ScreenMonitorService : Service() {
             }
             // Allow brief rendering/OCR/plane-detection gaps at the crash transition.
             // A short miss burst must not truncate the video or split a single round.
-            if(liveMisses>=30 && roundFrames>=30)finishRound()
-            else roundFrames++
+            roundFrames++
+            // Save after a confirmed disappearance, or after the red ending
+            // multiplier remains stable long enough to capture the crash screen.
+            // The long-miss fallback covers rounds where red OCR cannot read it.
+            if(roundFrames>=30 && (liveMisses>=12 || stableEndingFrames>=18)) finishRound()
         }
 
         lastFrame?.recycle()
@@ -211,6 +227,9 @@ class ScreenMonitorService : Service() {
         preScore=0.0
         preHold=0
         endingMultiplier=""
+        lastEndingCandidate=""
+        endingMultiplierHits=0
+        stableEndingFrames=0
         lastRedRead=0L
         lastPlaneX=Float.NaN
         lastPlaneY=Float.NaN
@@ -226,7 +245,8 @@ class ScreenMonitorService : Service() {
         if(!recording)return
         val savedRound=round
         val savedEnding=endingMultiplier
-        val file=recorder?.stop()
+        val file=try { recorder?.stop() } catch (_:Throwable) { null }
+        recorder=null
         recording=false
         val previous=store.all()
         round=0
@@ -238,15 +258,28 @@ class ScreenMonitorService : Service() {
         preScore=0.0
         val savedPath=file?.absolutePath?:""
         // Persist a placeholder immediately; slow video analysis must never block round history.
-        store.add(RoundRecord(savedRound,savedEnding,savedPath,0.0,0.0,"Round saved; visual analysis pending."))
-        publish("ROUND $savedRound SAVED — ANALYSIS PENDING",false,"Round $savedRound has been stored. Final multiplier and analysis are being completed.")
+        try {
+            store.add(RoundRecord(savedRound,savedEnding,savedPath,0.0,0.0,
+                if(savedPath.isNotBlank()) "Round video saved; visual analysis pending." else "Round detected, but video finalization failed; analysis pending unavailable."))
+        } catch (e:Throwable) {
+            publish("ROUND $savedRound SAVE ERROR",false,"Could not persist round $savedRound: ${e.javaClass.simpleName}")
+            return
+        }
+        publish("ROUND $savedRound SAVED — ANALYSIS PENDING",false,
+            if(savedPath.isNotBlank()) "Round $savedRound video finalized and added to saved rounds. Analysis is queued."
+            else "Round $savedRound was registered, but its video file could not be finalized.")
         analysisHandler.post{
             val analysis=if(file!=null) videoAnalyser.analyse(file,previous)
             else VideoAnalysis(0.0,0.0,"","No video file was produced.")
             val finalMultiplier=if(savedEnding.isNotBlank())savedEnding else analysis.redEndMultiplier
             val statement="Difference earlier → pre-fly-away: %.0f%%. Pre-fly-away visual consistency against recorded rounds: %.0f%%. %s".format(analysis.difference,analysis.preSimilarity,analysis.statement)
-            store.add(RoundRecord(savedRound,finalMultiplier,savedPath,analysis.difference,analysis.preSimilarity,statement,analysis.behaviourSignature))
-            publish("ROUND $savedRound SAVED",false,statement)
+            try {
+                store.add(RoundRecord(savedRound,finalMultiplier,savedPath,analysis.difference,analysis.preSimilarity,statement,analysis.behaviourSignature))
+                publish("ROUND $savedRound SAVED",false,statement)
+            } catch (e:Throwable) {
+                publish("ROUND $savedRound SAVED — ANALYSIS UPDATE FAILED",false,
+                    "The saved-round entry was retained; analysis update failed: ${e.javaClass.simpleName}")
+            }
         }
     }
 

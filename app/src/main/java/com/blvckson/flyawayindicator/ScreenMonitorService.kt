@@ -169,6 +169,7 @@ class ScreenMonitorService : Service() {
 
         // Separate visual continuity from OCR start confirmation. Once a
         // round has started, a temporary OCR miss must not stop its recording.
+        val planePresent = !state.planeX.isNaN() && !state.planeY.isNaN()
         val visualLive = state.isLive &&
             state.sceneScore >= 0.16 &&
             state.planeScore >= 0.08 &&
@@ -185,7 +186,9 @@ class ScreenMonitorService : Service() {
         }
 
         if(recording){
-            if(visualLive) liveMisses=0 else liveMisses=(liveMisses+1).coerceAtMost(60)
+            // End tracking follows the aircraft itself, not the broader scene score.
+            // The game background and multiplier UI can remain visible after the plane flies away.
+            if(planePresent) liveMisses=0 else liveMisses=(liveMisses+1).coerceAtMost(60)
             if(System.currentTimeMillis()-lastRedRead>=80L){
                 lastRedRead=System.currentTimeMillis()
                 redReader.inspect(frame){v->
@@ -211,7 +214,10 @@ class ScreenMonitorService : Service() {
             // Save after a confirmed disappearance, or after the red ending
             // multiplier remains stable long enough to capture the crash screen.
             // The long-miss fallback covers rounds where red OCR cannot read it.
-            if(roundFrames>=30 && (liveMisses>=12 || stableEndingFrames>=18)) finishRound()
+            // A round is plane-takeoff through disappearance/FLEW AWAY. Do not let a
+            // persistent game background or a briefly repeated live multiplier prevent saving.
+            // Require a minimum recording window to avoid splitting one round on transient misses.
+            if(roundFrames>=30 && (textVerifier.isEndConfirmed() || liveMisses>=12 || (!visualLive && stableEndingFrames>=18))) finishRound()
         }
 
         lastFrame?.recycle()

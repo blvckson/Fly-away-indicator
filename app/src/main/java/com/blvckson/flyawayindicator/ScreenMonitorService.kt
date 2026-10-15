@@ -208,16 +208,17 @@ class ScreenMonitorService : Service() {
             }else{
                 publish("RECORDING ROUND $round",false,"Whole Aviator live screen is being recorded; visual and plane behaviour are being tracked.")
             }
-            // Allow brief rendering/OCR/plane-detection gaps at the crash transition.
-            // A short miss burst must not truncate the video or split a single round.
+            // A frozen number or a missing plane by itself is not enough: capture can
+            // briefly drop frames and the game background remains visible after a crash.
+            // RedMultiplierReader only accepts red pixels, and repeated identical OCR
+            // readings are the evidence that the red final multiplier has stopped rising.
             roundFrames++
-            // Save after a confirmed disappearance, or after the red ending
-            // multiplier remains stable long enough to capture the crash screen.
-            // The long-miss fallback covers rounds where red OCR cannot read it.
-            // A round is plane-takeoff through disappearance/FLEW AWAY. Do not let a
-            // persistent game background or a briefly repeated live multiplier prevent saving.
-            // Require a minimum recording window to avoid splitting one round on transient misses.
-            if(roundFrames>=30 && (textVerifier.isEndConfirmed() || liveMisses>=12 || (!visualLive && stableEndingFrames>=18))) finishRound()
+            val planeGone = liveMisses >= 4
+            val redMultiplierFrozen = endingMultiplierHits >= 3 && stableEndingFrames >= 12
+            val flewAwayLabel = textVerifier.isEndConfirmed()
+            // End only on a confirmed FLEW AWAY label or a real plane disappearance,
+            // together with a stable red multiplier. Keep the final transition in the clip.
+            if(roundFrames >= 30 && redMultiplierFrozen && (flewAwayLabel || planeGone)) finishRound()
         }
 
         lastFrame?.recycle()
@@ -251,10 +252,11 @@ class ScreenMonitorService : Service() {
         if(!recording)return
         val savedRound=round
         val savedEnding=endingMultiplier
+        // Finalize the encoder promptly, then immediately release the live detector
+        // to recognize the next round. Index writes and video analysis run off-thread.
         val file=try { recorder?.stop() } catch (_:Throwable) { null }
         recorder=null
         recording=false
-        val previous=store.all()
         round=0
         missing=0
         liveMisses=0
@@ -262,19 +264,28 @@ class ScreenMonitorService : Service() {
         roundFrames=0
         preHold=0
         preScore=0.0
+        lastPlaneX=Float.NaN
+        lastPlaneY=Float.NaN
+        endingMultiplier=""
+        lastEndingCandidate=""
+        endingMultiplierHits=0
+        stableEndingFrames=0
         val savedPath=file?.absolutePath?:""
-        // Persist a placeholder immediately; slow video analysis must never block round history.
-        try {
-            store.add(RoundRecord(savedRound,savedEnding,savedPath,0.0,0.0,
-                if(savedPath.isNotBlank()) "Round video saved; visual analysis pending." else "Round detected, but video finalization failed; analysis pending unavailable."))
-        } catch (e:Throwable) {
-            publish("ROUND $savedRound SAVE ERROR",false,"Could not persist round $savedRound: ${e.javaClass.simpleName}")
-            return
-        }
-        publish("ROUND $savedRound SAVED — ANALYSIS PENDING",false,
-            if(savedPath.isNotBlank()) "Round $savedRound video finalized and added to saved rounds. Analysis is queued."
-            else "Round $savedRound was registered, but its video file could not be finalized.")
+        publish("ROUND $savedRound END CONFIRMED — SAVING",false,
+            "Round ended: FLEW AWAY / plane disappearance plus a stable red final multiplier. Next-round detection remains active.")
         analysisHandler.post{
+            val previous=store.all()
+            // Persist the round record first, independently of live capture.
+            try {
+                store.add(RoundRecord(savedRound,savedEnding,savedPath,0.0,0.0,
+                    if(savedPath.isNotBlank()) "Round video finalized; visual analysis pending." else "Round detected, but video finalization failed."))
+                publish("ROUND $savedRound SAVED — ANALYSIS PENDING",false,
+                    if(savedPath.isNotBlank()) "Round $savedRound video saved; analysis queued in the background."
+                    else "Round $savedRound was registered, but its video file could not be finalized.")
+            } catch (e:Throwable) {
+                publish("ROUND $savedRound SAVE ERROR",false,"Could not persist round $savedRound: ${e.javaClass.simpleName}")
+                return@post
+            }
             val analysis=if(file!=null) videoAnalyser.analyse(file,previous)
             else VideoAnalysis(0.0,0.0,"","No video file was produced.")
             val finalMultiplier=if(savedEnding.isNotBlank())savedEnding else analysis.redEndMultiplier

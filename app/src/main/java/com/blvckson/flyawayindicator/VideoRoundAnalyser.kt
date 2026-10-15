@@ -34,17 +34,33 @@ class VideoRoundAnalyser {
             val duration=r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()?:0L
             if(duration<200L) return VideoAnalysis(0.0,0.0,"","Round video was too short for analysis.")
 
-            // Sample the complete round, not just its first few seconds.
-            // Denser temporal sampling catches short visual transitions and the exact crash ending.
-            // Frames are downscaled before retention to keep memory bounded on low-RAM phones.
-            // Dense, time-ordered sampling approximates slowed playback on low-RAM phones.
-            // Cap retained frames to keep memory bounded while inspecting the whole round,
-            // including the final disappearance/ending multiplier.
-            val count=(duration/100L).toInt().coerceIn(56,120)
-            val frames=ArrayList<Bitmap>(count)
-            for(i in 0 until count){
-                val us=if(count==1) 0L else (i.toLong()*(duration*1000L))/(count-1L)
-                val raw=r.getFrameAtTime(us,MediaMetadataRetriever.OPTION_CLOSEST) ?: continue
+            // Analyse the whole saved round, but spend most temporal resolution near its end.
+            // The recording is finalized shortly after the stable red ending multiplier is detected.
+            // Therefore the last ~850 ms are treated as post-end confirmation, NOT pre-fly-away.
+            // Pre-fly-away is explicitly the short 1.2-second window immediately BEFORE that point.
+            // Earlier and immediately preceding sections are retained separately for comparison.
+            val estimatedEndMs=(duration-850L).coerceAtLeast(0L)
+            val preStartMs=(estimatedEndMs-1200L).coerceAtLeast(0L)
+            val middleStartMs=(preStartMs-1800L).coerceAtLeast(0L)
+            val sampleTimes=java.util.TreeSet<Long>()
+            val broadEndMs=middleStartMs
+            val broadCount=32
+            if(broadEndMs>0L){
+                for(i in 0 until broadCount){
+                    sampleTimes.add((i.toLong()*broadEndMs)/(broadCount-1L))
+                }
+            }
+            // Dense 80 ms sampling across the final comparison sections approximates slow-motion review.
+            var t=middleStartMs
+            while(t<=duration){
+                sampleTimes.add(t)
+                t+=80L
+            }
+            sampleTimes.add(duration)
+            val frames=ArrayList<Bitmap>(sampleTimes.size)
+            val frameTimes=ArrayList<Long>(sampleTimes.size)
+            for(timeMs in sampleTimes){
+                val raw=r.getFrameAtTime(timeMs*1000L,MediaMetadataRetriever.OPTION_CLOSEST) ?: continue
                 val scale=minOf(1.0,320.0/max(raw.width,raw.height).toDouble())
                 val b=if(scale<1.0) Bitmap.createScaledBitmap(
                     raw,(raw.width*scale).toInt().coerceAtLeast(2),
@@ -52,28 +68,44 @@ class VideoRoundAnalyser {
                 ) else raw
                 if(b!==raw) raw.recycle()
                 frames.add(b)
+                frameTimes.add(timeMs)
             }
-            if(frames.size<8) return VideoAnalysis(0.0,0.0,"","Not enough visual frames for comparison.")
+            if(frames.size<8){
+                frames.forEach{it.recycle()}
+                return VideoAnalysis(0.0,0.0,"","Not enough visual frames for comparison.")
+            }
 
-            val split=(frames.size*0.60).toInt().coerceIn(2,frames.size-2)
-            val lateStart=(frames.size*0.74).toInt().coerceIn(split+1,frames.size-1)
-            val early=signature(frames.subList(0,split))
-            val late=signature(frames.subList(lateStart,frames.size))
-            val difference=visualDifference(early,late)
-            val redEnd=readEndingMultiplier(frames.takeLast(6))
+            // Isolate the last small moments BEFORE the estimated fly-away/end marker.
+            val preIndices=frameTimes.indices.filter{frameTimes[it]>=preStartMs && frameTimes[it]<estimatedEndMs}
+            val middleIndices=frameTimes.indices.filter{frameTimes[it]>=middleStartMs && frameTimes[it]<preStartMs}
+            val earlierIndices=frameTimes.indices.filter{frameTimes[it]<middleStartMs}
+            if(preIndices.size<4){
+                frames.forEach{it.recycle()}
+                return VideoAnalysis(0.0,0.0,"","Pre-fly-away segment was too short to analyse reliably; original video retained.")
+            }
+            val preFrames=preIndices.map{frames[it]}
+            val middleFrames=middleIndices.map{frames[it]}
+            val earlierFrames=earlierIndices.map{frames[it]}
+            val preSignature=signature(preFrames)
+            val earlierSignature=signature(if(earlierFrames.size>=3) earlierFrames else middleFrames)
+            val middleSignature=signature(if(middleFrames.size>=3) middleFrames else earlierFrames)
+            val earlierDifference=visualDifference(earlierSignature,preSignature)
+            val adjacentDifference=visualDifference(middleSignature,preSignature)
+            val difference=earlierDifference*0.60+adjacentDifference*0.40
+            val redEnd=readEndingMultiplier(frames.takeLast(8))
 
-            val currentSig=encode(late)
+            // Store and compare ONLY the isolated pre-fly-away signature across rounds.
+            val currentSig=encode(preSignature)
             val similarity=compareWithHistory(currentSig,previous)
-            val stageDifference=stageDifference(frames,split,lateStart)
             frames.forEach{it.recycle()}
 
             val statement=when{
-                difference>=0.70 -> "Strong visual/behavioural change from the earlier stage into the pre-fly-away stage."
-                difference>=0.45 -> "Clear visual/behavioural change from the earlier stage into the pre-fly-away stage."
-                else -> "The pre-fly-away stage remained relatively similar to earlier activity."
-            }
+                difference>=0.70 -> "Strong difference: earlier round vs final pre-fly-away moments. The pre-fly-away segment is isolated before the plane flies away."
+                difference>=0.45 -> "Clear difference: earlier round vs final pre-fly-away moments. The pre-fly-away segment is isolated before the plane flies away."
+                else -> "The isolated final pre-fly-away moments remain visually similar to the earlier sections."
+            } + " Pre-fly-away window: approximately 1.2 seconds before the detected ending point; post-ending frames are excluded from the comparison."
             VideoAnalysis(
-                (difference*0.65 + stageDifference*0.35)*100.0,
+                difference*100.0,
                 similarity*100.0,
                 redEnd,
                 statement,

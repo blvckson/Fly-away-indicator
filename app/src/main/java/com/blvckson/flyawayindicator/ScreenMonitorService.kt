@@ -81,8 +81,9 @@ class ScreenMonitorService : Service() {
     private var preHold=0
     private var endingMultiplier=""
     private var lastEndingCandidate=""
-    private var endingMultiplierHits=0
+    @Volatile private var endingMultiplierHits=0
     private var stableEndingFrames=0
+    @Volatile private var stableEndingSinceMs=0L
     private var lastRedRead=0L
     private val recentChanges=ArrayDeque<Double>()
 
@@ -194,8 +195,13 @@ class ScreenMonitorService : Service() {
                 redReader.inspect(frame){v->
                     if(v.isNotBlank()){
                         endingMultiplier=v
-                        if(v==lastEndingCandidate) endingMultiplierHits=(endingMultiplierHits+1).coerceAtMost(12)
-                        else { lastEndingCandidate=v; endingMultiplierHits=1 }
+                        if(v==lastEndingCandidate) {
+                            endingMultiplierHits=(endingMultiplierHits+1).coerceAtMost(12)
+                        } else {
+                            lastEndingCandidate=v
+                            endingMultiplierHits=1
+                            stableEndingSinceMs=System.currentTimeMillis()
+                        }
                     }
                 }
             }
@@ -213,14 +219,21 @@ class ScreenMonitorService : Service() {
             // RedMultiplierReader only accepts red pixels, and repeated identical OCR
             // readings are the evidence that the red final multiplier has stopped rising.
             roundFrames++
-            val redMultiplierFrozen = endingMultiplierHits >= 3 && stableEndingFrames >= 12
-            // The red final multiplier is the decisive round-end signal. OCR may
-            // miss the FLEW AWAY label and the plane detector can keep tracking a
-            // stale aircraft frame, so neither is allowed to block automatic saving.
-            // Red-only multiplier reads must repeat and remain unchanged before we
-            // stop the recorder; this preserves the final transition but prevents
-            // recording the lobby/next round indefinitely.
-            if(roundFrames >= 30 && redMultiplierFrozen) finishRound()
+            val now=System.currentTimeMillis()
+            // Use elapsed time as well as repeated OCR hits. Capture processing can
+            // be slower than display refresh, so a frame-count-only threshold can
+            // postpone finalization indefinitely on slower phones.
+            val redMultiplierFrozen = endingMultiplierHits >= 3 &&
+                stableEndingSinceMs > 0L && now-stableEndingSinceMs >= 850L
+            // FLEW AWAY is an explicit end marker. If the final red multiplier has
+            // already been read, don't require the red OCR engine to keep returning
+            // the same value forever before closing the MP4 and saving its record.
+            val explicitEnd = textVerifier.isEndConfirmed() &&
+                endingMultiplier.isNotBlank() && roundFrames >= 8
+            // A stable red ending multiplier also ends the round without requiring
+            // the user to reopen the app or press STOP. Once finalized, the monitor
+            // stays active and the next round gets its own recorder/file.
+            if(roundFrames >= 20 && (redMultiplierFrozen || explicitEnd)) finishRound()
         }
 
         lastFrame?.recycle()
@@ -239,6 +252,7 @@ class ScreenMonitorService : Service() {
         lastEndingCandidate=""
         endingMultiplierHits=0
         stableEndingFrames=0
+        stableEndingSinceMs=0L
         lastRedRead=0L
         lastPlaneX=Float.NaN
         lastPlaneY=Float.NaN
@@ -272,6 +286,7 @@ class ScreenMonitorService : Service() {
         lastEndingCandidate=""
         endingMultiplierHits=0
         stableEndingFrames=0
+        stableEndingSinceMs=0L
         val savedPath=file?.absolutePath?:""
         publish("ROUND $savedRound END CONFIRMED — SAVING",false,
             "Round ended: FLEW AWAY / plane disappearance plus a stable red final multiplier. Next-round detection remains active.")

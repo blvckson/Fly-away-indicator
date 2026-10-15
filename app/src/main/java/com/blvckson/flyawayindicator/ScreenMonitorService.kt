@@ -290,19 +290,21 @@ class ScreenMonitorService : Service() {
         val savedPath=file?.absolutePath?:""
         publish("ROUND $savedRound END CONFIRMED — SAVING",false,
             "Round ended: FLEW AWAY / plane disappearance plus a stable red final multiplier. Next-round detection remains active.")
+        // Commit the round index immediately on the capture thread before queuing
+        // expensive video analysis. This makes the completed round visible without
+        // reopening the app or pressing STOP, and leaves analysis non-blocking.
+        val previous=store.all()
+        try {
+            store.add(RoundRecord(savedRound,savedEnding,savedPath,0.0,0.0,
+                if(savedPath.isNotBlank()) "Round video finalized; visual analysis pending." else "Round detected, but video finalization failed."))
+            publish("ROUND $savedRound SAVED — ANALYSIS PENDING",false,
+                if(savedPath.isNotBlank()) "Round $savedRound video saved; analysis queued in the background."
+                else "Round $savedRound was registered, but its video file could not be finalized.")
+        } catch (e:Throwable) {
+            publish("ROUND $savedRound SAVE ERROR",false,"Could not persist round $savedRound: ${e.javaClass.simpleName}")
+            return
+        }
         analysisHandler.post{
-            val previous=store.all()
-            // Persist the round record first, independently of live capture.
-            try {
-                store.add(RoundRecord(savedRound,savedEnding,savedPath,0.0,0.0,
-                    if(savedPath.isNotBlank()) "Round video finalized; visual analysis pending." else "Round detected, but video finalization failed."))
-                publish("ROUND $savedRound SAVED — ANALYSIS PENDING",false,
-                    if(savedPath.isNotBlank()) "Round $savedRound video saved; analysis queued in the background."
-                    else "Round $savedRound was registered, but its video file could not be finalized.")
-            } catch (e:Throwable) {
-                publish("ROUND $savedRound SAVE ERROR",false,"Could not persist round $savedRound: ${e.javaClass.simpleName}")
-                return@post
-            }
             val analysis=if(file!=null) videoAnalyser.analyse(file,previous)
             else VideoAnalysis(0.0,0.0,"","No video file was produced.")
             val finalMultiplier=if(savedEnding.isNotBlank())savedEnding else analysis.redEndMultiplier

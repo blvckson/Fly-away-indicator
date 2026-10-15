@@ -213,12 +213,14 @@ class ScreenMonitorService : Service() {
             // RedMultiplierReader only accepts red pixels, and repeated identical OCR
             // readings are the evidence that the red final multiplier has stopped rising.
             roundFrames++
-            val planeGone = liveMisses >= 4
             val redMultiplierFrozen = endingMultiplierHits >= 3 && stableEndingFrames >= 12
-            val flewAwayLabel = textVerifier.isEndConfirmed()
-            // End only on a confirmed FLEW AWAY label or a real plane disappearance,
-            // together with a stable red multiplier. Keep the final transition in the clip.
-            if(roundFrames >= 30 && redMultiplierFrozen && (flewAwayLabel || planeGone)) finishRound()
+            // The red final multiplier is the decisive round-end signal. OCR may
+            // miss the FLEW AWAY label and the plane detector can keep tracking a
+            // stale aircraft frame, so neither is allowed to block automatic saving.
+            // Red-only multiplier reads must repeat and remain unchanged before we
+            // stop the recorder; this preserves the final transition but prevents
+            // recording the lobby/next round indefinitely.
+            if(roundFrames >= 30 && redMultiplierFrozen) finishRound()
         }
 
         lastFrame?.recycle()

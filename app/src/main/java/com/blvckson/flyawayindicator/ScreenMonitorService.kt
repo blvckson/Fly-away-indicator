@@ -73,6 +73,9 @@ class ScreenMonitorService : Service() {
     private var liveMisses=0
     private var liveConfirmHits=0
     private var roundFrames=0
+    // End detection tolerates missed OCR frames and temporary plane-detector dropouts.
+    private var planeSeenInRound=false
+    private var planeMissingSinceMs=0L
     private var lastFrame:Bitmap?=null
     private var lastPlaneX=Float.NaN
     private var lastPlaneY=Float.NaN
@@ -188,8 +191,16 @@ class ScreenMonitorService : Service() {
 
         if(recording){
             // End tracking follows the aircraft itself, not the broader scene score.
-            // The game background and multiplier UI can remain visible after the plane flies away.
-            if(planePresent) liveMisses=0 else liveMisses=(liveMisses+1).coerceAtMost(60)
+            // Require a sustained disappearance before using it as fallback end evidence.
+            val frameNow=System.currentTimeMillis()
+            if(planePresent){
+                planeSeenInRound=true
+                planeMissingSinceMs=0L
+                liveMisses=0
+            }else{
+                liveMisses=(liveMisses+1).coerceAtMost(60)
+                if(planeSeenInRound && planeMissingSinceMs==0L) planeMissingSinceMs=frameNow
+            }
             if(System.currentTimeMillis()-lastRedRead>=80L){
                 lastRedRead=System.currentTimeMillis()
                 redReader.inspect(frame){v->
@@ -228,12 +239,15 @@ class ScreenMonitorService : Service() {
             // FLEW AWAY is an explicit end marker. If the final red multiplier has
             // already been read, don't require the red OCR engine to keep returning
             // the same value forever before closing the MP4 and saving its record.
-            val explicitEnd = textVerifier.isEndConfirmed() &&
-                endingMultiplier.isNotBlank() && roundFrames >= 8
-            // A stable red ending multiplier also ends the round without requiring
-            // the user to reopen the app or press STOP. Once finalized, the monitor
-            // stays active and the next round gets its own recorder/file.
-            if(roundFrames >= 20 && (redMultiplierFrozen || explicitEnd)) finishRound()
+            val explicitEnd = textVerifier.isEndConfirmed() && roundFrames >= 8
+            // Fallback: after the plane was positively seen, a continuous 1.8 s
+            // disappearance plus either a readable red multiplier or the explicit
+            // FLEW AWAY marker closes the round despite intermittent OCR misses.
+            val sustainedPlaneDisappearance = planeSeenInRound && !planePresent &&
+                planeMissingSinceMs > 0L && now-planeMissingSinceMs >= 1800L &&
+                (endingMultiplier.isNotBlank() || textVerifier.isEndConfirmed())
+            // Save immediately; video analysis remains on its own background thread.
+            if(roundFrames >= 20 && (redMultiplierFrozen || explicitEnd || sustainedPlaneDisappearance)) finishRound()
         }
 
         lastFrame?.recycle()
@@ -256,6 +270,8 @@ class ScreenMonitorService : Service() {
         lastRedRead=0L
         lastPlaneX=Float.NaN
         lastPlaneY=Float.NaN
+        planeSeenInRound=false
+        planeMissingSinceMs=0L
         recentChanges.clear()
         recorder=RoundVideoRecorder(projection!!,this)
         val file=recorder?.start(w,h,density)
@@ -282,6 +298,8 @@ class ScreenMonitorService : Service() {
         preScore=0.0
         lastPlaneX=Float.NaN
         lastPlaneY=Float.NaN
+        planeSeenInRound=false
+        planeMissingSinceMs=0L
         endingMultiplier=""
         lastEndingCandidate=""
         endingMultiplierHits=0

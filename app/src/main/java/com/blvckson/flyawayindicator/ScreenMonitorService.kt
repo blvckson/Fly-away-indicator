@@ -106,6 +106,9 @@ class ScreenMonitorService : Service() {
     }
 
     override fun onStartCommand(intent:Intent?,flags:Int,startId:Int):Int{
+        // Promote immediately. The service must remain foreground while another
+        // app (Aviator) is in front, otherwise Android may kill it and remove the overlay.
+        startForeground(7,notification())
         if(intent?.action==ACTION_SHOW_OVERLAY){
             if(overlayContainer==null) showOverlay()
             return START_STICKY
@@ -115,7 +118,6 @@ class ScreenMonitorService : Service() {
         val pm=getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         projection=pm.getMediaProjection(code,data)
         if(projection==null)return START_NOT_STICKY
-        startForeground(7,notification())
         startCapture()
         return START_STICKY
     }

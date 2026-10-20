@@ -84,7 +84,13 @@ class MainActivity : Activity() {
         val service=Intent(this,ScreenMonitorService::class.java)
             .putExtra("resultCode",resultCode)
             .putExtra("data",data)
-        startService(service)
+        // Android 8+ restricts background service starts. Launch as a foreground
+        // service so the draggable monitor remains alive when Aviator takes focus.
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            startForegroundService(service)
+        } else {
+            startService(service)
+        }
         status.text="Monitor active — waiting for the Aviator live screen."
     }
 

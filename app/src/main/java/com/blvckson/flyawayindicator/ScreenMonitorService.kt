@@ -252,8 +252,17 @@ class ScreenMonitorService : Service() {
             if(roundFrames >= 20 && (redMultiplierFrozen || explicitEnd || sustainedPlaneDisappearance)) finishRound()
         }
 
+        // Keep only a small comparison snapshot. Copying a full-resolution screen
+        // bitmap on every capture frame was a major memory-bandwidth cost on older
+        // devices; the detector and recorder still receive the original full frame.
         lastFrame?.recycle()
-        lastFrame=Bitmap.createBitmap(frame)
+        val snapshotScale=minOf(1.0,320.0/max(frame.width,frame.height).toDouble())
+        lastFrame=if(snapshotScale<1.0) Bitmap.createScaledBitmap(
+            frame,
+            (frame.width*snapshotScale).toInt().coerceAtLeast(2),
+            (frame.height*snapshotScale).toInt().coerceAtLeast(2),
+            false
+        ) else Bitmap.createBitmap(frame)
     }
 
     private fun startRound(w:Int,h:Int,density:Int){
@@ -349,11 +358,15 @@ class ScreenMonitorService : Service() {
 
     private fun centralChange(a:Bitmap?,b:Bitmap):Double{
         if(a==null)return 0.0
+        // Sample the same normalized screen region even though the previous-frame
+        // snapshot is downscaled for faster capture on memory-constrained devices.
         val x0=(b.width*0.20).toInt();val x1=(b.width*0.80).toInt()
         val y0=(b.height*0.08).toInt();val y1=(b.height*0.52).toInt()
         var total=0;var n=0
         for(y in y0 until y1 step 9)for(x in x0 until x1 step 9){
-            val ca=a.getPixel(x,y);val cb=b.getPixel(x,y)
+            val ax=(x.toLong()*a.width/b.width).toInt().coerceIn(0,a.width-1)
+            val ay=(y.toLong()*a.height/b.height).toInt().coerceIn(0,a.height-1)
+            val ca=a.getPixel(ax,ay);val cb=b.getPixel(x,y)
             total+=abs(((ca shr 16)and 255)-((cb shr 16)and 255))
             total+=abs(((ca shr 8)and 255)-((cb shr 8)and 255))
             total+=abs((ca and 255)-(cb and 255));n+=3
@@ -366,7 +379,9 @@ class ScreenMonitorService : Service() {
         var total=0;var n=0
         for(j in 0 until sy)for(i in 0 until sx){
             val x=i*(b.width-1)/(sx-1);val y=j*(b.height-1)/(sy-1)
-            val ca=a.getPixel(x,y);val cb=b.getPixel(x,y)
+            val ax=(x.toLong()*a.width/b.width).toInt().coerceIn(0,a.width-1)
+            val ay=(y.toLong()*a.height/b.height).toInt().coerceIn(0,a.height-1)
+            val ca=a.getPixel(ax,ay);val cb=b.getPixel(x,y)
             total+=abs(((ca shr 16)and 255)-((cb shr 16)and 255))
             total+=abs(((ca shr 8)and 255)-((cb shr 8)and 255))
             total+=abs((ca and 255)-(cb and 255));n+=3

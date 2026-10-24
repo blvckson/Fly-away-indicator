@@ -21,7 +21,6 @@ class AccessGateActivity : Activity() {
     private val io = Executors.newSingleThreadExecutor()
     private lateinit var status: TextView
     private lateinit var nameInput: EditText
-    private lateinit var codeInput: EditText
     private val prefs by lazy { getSharedPreferences("customer_access", MODE_PRIVATE) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -33,9 +32,9 @@ class AccessGateActivity : Activity() {
             textSize = 16f; setPadding(0, 16, 0, 16)
         })
         nameInput = EditText(this).apply { hint = "Your name"; inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS }
-        codeInput = EditText(this).apply { hint = "Single-use authorization code"; inputType = InputType.TYPE_CLASS_TEXT }
-        root.addView(nameInput); root.addView(codeInput)
-        root.addView(Button(this).apply { text = "ACTIVATE WITH ADMIN CODE"; setOnClickListener { activate() } })
+        root.addView(nameInput)
+        root.addView(Button(this).apply { text = "REQUEST AUTHORIZATION"; setOnClickListener { requestAuthorization() } })
+        root.addView(Button(this).apply { text = "CHECK APPROVAL STATUS"; setOnClickListener { checkExistingAuthorization() } })
         root.addView(Button(this).apply { text = "Optional passcode settings"; setOnClickListener { configurePasscode() } })
         status = TextView(this).apply { text = "Not authorized."; setPadding(0, 18, 0, 0) }
         root.addView(status)
@@ -94,29 +93,26 @@ class AccessGateActivity : Activity() {
             runOnUiThread {
                 result.onSuccess {
                     if (it.optInt("_http") in 200..299 && it.optBoolean("authorized", false)) unlockOrAskPasscode()
-                    else status.text = "Authorization expired, revoked, or not found. Request a new code from Admin AI."
+                    else status.text = it.optString("message", when (it.optString("status")) { "pending" -> "Request pending Admin approval."; "rejected" -> "Request rejected. Submit a new request if needed."; else -> "Not authorized. Enter your name and request approval." })
                 }.onFailure { status.text = it.message ?: "Authorization service unavailable. Access remains locked." }
             }
         }
     }
 
-    private fun activate() {
+    private fun requestAuthorization() {
         val name = nameInput.text.toString().trim()
-        val code = codeInput.text.toString().trim()
-        if (name.isBlank() || code.isBlank()) { status.text = "Enter your name and the code supplied by Admin AI."; return }
+        if (name.isBlank()) { status.text = "Enter your name first."; return }
         val installation = prefs.getString("installation_id", null) ?: UUID.randomUUID().toString()
-        prefs.edit().putString("installation_id", installation).apply()
-        status.text = "Verifying single-use code…"
+        prefs.edit().putString("installation_id", installation).putString("customer_name", name).apply()
+        status.text = "Sending authorization request to Admin AI…"
         io.execute {
             val result = runCatching {
-                post("/v1/customer/activate", JSONObject().put("name", name).put("code", code).put("installationId", installation))
+                post("/v1/customer/request-authorization", JSONObject().put("name", name).put("installationId", installation))
             }
             runOnUiThread {
-                result.onSuccess {
-                    if (it.optInt("_http") in 200..299 && it.optBoolean("authorized", false)) {
-                        prefs.edit().putString("customer_name", name).apply()
-                        unlockOrAskPasscode()
-                    } else status.text = it.optString("message", "Authorization rejected.")
+                result.onSuccess { json ->
+                    if (json.optInt("_http") in 200..299 && json.optBoolean("authorized", false)) unlockOrAskPasscode()
+                    else status.text = json.optString("message", "Request sent. Wait for Admin approval.")
                 }.onFailure { status.text = it.message ?: "Authorization service unavailable. Access remains locked." }
             }
         }

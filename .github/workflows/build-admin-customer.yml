@@ -1,0 +1,48 @@
+name: Build Admin AI and Customer AI
+
+on:
+  push:
+    branches: [ feature/admin-customer-ai ]
+    paths:
+      - 'admin-ai/**'
+      - 'customer-ai/**'
+      - 'authorization-server/**'
+      - '.github/workflows/build-admin-customer.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.5'
+      - name: Build Admin AI APK
+        env:
+          AUTH_API_BASE_URL: ${{ vars.AUTH_API_BASE_URL }}
+        run: gradle -p admin-ai assembleDebug --no-daemon -PauthApiBaseUrl="${AUTH_API_BASE_URL}"
+      - name: Build Customer AI APK
+        env:
+          AUTH_API_BASE_URL: ${{ vars.AUTH_API_BASE_URL }}
+        run: gradle -p customer-ai assembleDebug --no-daemon -PauthApiBaseUrl="${AUTH_API_BASE_URL}"
+      - name: Upload Admin AI APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: fly-away-admin-ai-debug
+          path: admin-ai/app/build/outputs/apk/debug/app-debug.apk
+      - name: Upload Customer AI APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: fly-away-customer-ai-debug
+          path: customer-ai/app/build/outputs/apk/debug/app-debug.apk

@@ -5,6 +5,7 @@ import android.app.AlertDialog
 import android.content.Intent
 import android.os.Bundle
 import android.text.InputType
+import android.graphics.Color
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -25,18 +26,37 @@ class AccessGateActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(24, 28, 24, 24) }
-        root.addView(TextView(this).apply { text = "Fly Away Customer AI"; textSize = 24f })
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(24, 20, 24, 24)
+            setBackgroundColor(Color.rgb(41, 43, 47))
+        }
+        root.addView(AnimatedFlightView(this), LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, (142 * resources.displayMetrics.density).toInt()
+        ))
+        root.addView(TextView(this).apply {
+            text = "FLY AWAY INDICATOR"
+            textSize = 24f
+            setTextColor(Color.WHITE)
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            setPadding(0, 12, 0, 0)
+        })
+        root.addView(TextView(this).apply {
+            text = "CUSTOMER ACCESS"
+            textSize = 12f
+            setTextColor(Color.rgb(255, 48, 56))
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+        })
         root.addView(TextView(this).apply {
             text = "Admin authorization is required before recording or analysis can be used."
-            textSize = 16f; setPadding(0, 16, 0, 16)
+            textSize = 16f; setTextColor(Color.LTGRAY); setPadding(0, 16, 0, 16)
         })
         nameInput = EditText(this).apply { hint = "Your name"; inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS }
         root.addView(nameInput)
         root.addView(Button(this).apply { text = "REQUEST AUTHORIZATION"; setOnClickListener { requestAuthorization() } })
         root.addView(Button(this).apply { text = "CHECK APPROVAL STATUS"; setOnClickListener { checkExistingAuthorization() } })
         root.addView(Button(this).apply { text = "Optional passcode settings"; setOnClickListener { configurePasscode() } })
-        status = TextView(this).apply { text = "Not authorized."; setPadding(0, 18, 0, 0) }
+        status = TextView(this).apply { text = "Not authorized."; setTextColor(Color.rgb(255, 82, 91)); setPadding(0, 18, 0, 0) }
         root.addView(status)
         setContentView(root)
         if (!prefs.getBoolean("passcode_recommendation_shown", false)) {

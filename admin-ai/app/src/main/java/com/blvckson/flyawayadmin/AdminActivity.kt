@@ -100,8 +100,10 @@ class AdminActivity : Activity() {
         })
         customerName = EditText(this).apply { hint = "Customer's full name"; inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS }
         duration = EditText(this).apply { hint = "Authorization period in days (default 14)"; inputType = InputType.TYPE_CLASS_NUMBER; setText(prefs.getInt("default_period_days", 14).toString()) }
-        root.addView(customerName); root.addView(duration)
-        root.addView(Button(this).apply { text = "Generate single-use authorization code"; setOnClickListener { createAuthorization() } })
+        root.addView(TextView(this).apply {
+            text = "Customers enter their own name in Customer AI and submit a request. Review pending requests below, then approve or reject each installation."
+            setPadding(0, 8, 0, 12)
+        })
         root.addView(Button(this).apply { text = "Refresh all customers"; setOnClickListener { loadCustomers() } })
         root.addView(Button(this).apply { text = "Set default authorization period"; setOnClickListener { setDefaultPeriod() } })
         status = TextView(this).apply { text = "Ready. Server must be configured before codes can be issued."; setPadding(0, 12, 0, 12) }
@@ -210,17 +212,20 @@ class AdminActivity : Activity() {
 
     private fun chooseAction(id: String, label: String) {
         val input = EditText(this).apply { hint = "Days to add or subtract"; inputType = InputType.TYPE_CLASS_NUMBER; setText("14") }
-        val options = arrayOf("Extend from current expiry", "Shorten from current expiry", "Deactivate now", "Reactivate / renew")
+        val options = arrayOf("Approve pending request", "Reject pending request", "Extend from current expiry", "Shorten from current expiry", "Deactivate now", "Reactivate / renew")
         AlertDialog.Builder(this).setTitle(label).setItems(options) { _, which ->
-            val action = when (which) { 0 -> "extend"; 1 -> "shorten"; 2 -> "deactivate"; else -> "reactivate" }
-            if (action == "deactivate" || action == "reactivate") updateCustomer(id, action, 0)
+            val action = when (which) {
+                0 -> "approve"; 1 -> "reject"; 2 -> "extend"; 3 -> "shorten"; 4 -> "deactivate"; else -> "reactivate"
+            }
+            if (action == "approve") updateCustomer(id, action, prefs.getInt("default_period_days", 14))
+            else if (action == "reject" || action == "deactivate" || action == "reactivate") updateCustomer(id, action, 0)
             else AlertDialog.Builder(this).setTitle("Period in days").setView(input)
                 .setPositiveButton("Apply") { _, _ -> updateCustomer(id, action, input.text.toString().toIntOrNull() ?: 14) }.show()
         }.show()
     }
 
     private fun updateCustomer(id: String, action: String, days: Int) {
-        if (action != "deactivate" && days < 1) { statusMessage("Enter at least one day."); return }
+        if (action !in listOf("deactivate", "reject", "reactivate") && days < 1) { statusMessage("Enter at least one day."); return }
         io.execute {
             val result = runCatching { request("/v1/admin/authorizations/update", JSONObject().put("id", id).put("action", action).put("durationDays", days)) }
             runOnUiThread {

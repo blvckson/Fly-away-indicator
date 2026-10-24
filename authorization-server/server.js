@@ -79,6 +79,28 @@ const server = http.createServer(async (req, res) => {
   let body;
   try { body = await readJson(req); } catch (e) { return fail(res, 400, e.message); }
 
+  if (req.url === '/v1/customer/request-authorization') {
+    const name = String(body.name || '').trim();
+    const installationId = String(body.installationId || '').trim();
+    if (!name || !installationId) return fail(res, 400, 'Name and installation are required.');
+    const existing = data.authorizations.filter(x => x.installationId === installationId)
+      .sort((a, b) => String(b.issuedAt || '').localeCompare(String(a.issuedAt || '')))[0];
+    if (existing && safeStatus(existing, false) === 'active') {
+      return send(res, 200, { authorized: true, status: 'active', message: 'This installation is already authorized.', expiresAt: existing.expiresAt });
+    }
+    if (existing && existing.status === 'pending') {
+      return send(res, 200, { authorized: false, status: 'pending', message: 'Your request is already waiting for Admin approval.' });
+    }
+    const record = {
+      id: crypto.randomUUID(), name, status: 'pending', issuedAt: nowIso(),
+      durationDays: data.defaultPeriodDays, codeHash: null, installationId,
+      activatedAt: null, expiresAt: null, updatedAt: nowIso(), requestType: 'customer'
+    };
+    data.authorizations.push(record);
+    persist();
+    return send(res, 201, { authorized: false, status: 'pending', message: 'Authorization request sent to Admin AI. Wait for approval.' });
+  }
+
   if (req.url === '/v1/customer/activate') {
     const name = String(body.name || '').trim();
     const code = String(body.code || '').trim().toUpperCase();
@@ -102,9 +124,10 @@ const server = http.createServer(async (req, res) => {
     const installationId = String(body.installationId || '').trim();
     if (!installationId) return fail(res, 400, 'Installation identifier is required.');
     const record = data.authorizations.filter(x => x.installationId === installationId).sort((a, b) => String(b.activatedAt || '').localeCompare(String(a.activatedAt || '')))[0];
-    if (!record) return send(res, 200, { authorized: false, message: 'This installation has no authorization.' });
+    if (!record) return send(res, 200, { authorized: false, status: 'not_requested', message: 'This installation has no authorization request.' });
     const status = safeStatus(record);
-    if (status !== 'active') return send(res, 200, { authorized: false, status, message: 'Authorization expired or deactivated.' });
+    if (status === 'pending') return send(res, 200, { authorized: false, status, message: 'Your authorization request is waiting for Admin approval.' });
+    if (status !== 'active') return send(res, 200, { authorized: false, status, message: status === 'rejected' ? 'Admin rejected this request. Submit a new request if needed.' : 'Authorization expired or deactivated.' });
     return send(res, 200, { authorized: true, status, expiresAt: record.expiresAt, remainingSeconds: remainingSeconds(record) });
   }
 
@@ -147,6 +170,22 @@ const server = http.createServer(async (req, res) => {
     if (!record) return fail(res, 404, 'Customer authorization not found.');
     const now = Date.now();
     safeStatus(record, false);
+    if (action === 'approve') {
+      if (record.status !== 'pending' || !record.installationId) return fail(res, 409, 'Only a pending installation request can be approved.');
+      const period = Number.isInteger(days) && days > 0 ? days : data.defaultPeriodDays;
+      record.activatedAt = nowIso(now);
+      record.expiresAt = nowIso(now + period * DAY);
+      record.durationDays = period;
+      record.status = 'active';
+      record.updatedAt = nowIso(now);
+      persist();
+      return send(res, 200, { message: record.name + ' approved for ' + period + ' days.' });
+    }
+    if (action === 'reject') {
+      if (record.status !== 'pending') return fail(res, 409, 'Only a pending request can be rejected.');
+      record.status = 'rejected'; record.updatedAt = nowIso(now); persist();
+      return send(res, 200, { message: record.name + ' request rejected.' });
+    }
     if (action === 'deactivate') {
       record.status = 'deactivated'; record.updatedAt = nowIso(now); persist();
       return send(res, 200, { message: record.name + ' has been deactivated.' });

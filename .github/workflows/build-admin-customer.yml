@@ -8,6 +8,13 @@ on:
       - 'customer-ai/**'
       - 'authorization-server/**'
       - '.github/workflows/build-admin-customer.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'admin-ai/**'
+      - 'customer-ai/**'
+      - 'authorization-server/**'
+      - '.github/workflows/build-admin-customer.yml'
   workflow_dispatch:
 
 permissions:

@@ -5,7 +5,7 @@
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
-    <application android:theme="@style/AppTheme" android:label="Fly Away Customer AI" android:allowBackup="false" android:usesCleartextTraffic="false">
+    <application android:theme="@style/AppTheme" android:label="FLY AWAY INDICATOR — CUSTOMER" android:allowBackup="false" android:usesCleartextTraffic="false">
         <activity android:name=".AccessGateActivity" android:screenOrientation="portrait" android:exported="true">
             <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
         </activity>

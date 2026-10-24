@@ -152,6 +152,7 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, { message: record.name + ' has been deactivated.' });
     }
     if (action === 'reactivate') {
+      if (!record.activatedAt || !record.installationId) return fail(res, 409, 'This code has not been activated yet; issue a fresh code instead.');
       const period = Number.isInteger(days) && days > 0 ? days : data.defaultPeriodDays;
       record.activatedAt = nowIso(now);
       record.expiresAt = nowIso(now + period * DAY);

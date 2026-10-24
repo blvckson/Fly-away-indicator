@@ -6,8 +6,10 @@ import android.content.Intent
 import android.os.Bundle
 import android.text.InputType
 import android.graphics.Color
+import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import org.json.JSONObject
@@ -28,18 +30,25 @@ class AccessGateActivity : Activity() {
         super.onCreate(savedInstanceState)
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(24, 20, 24, 24)
+            setPadding(24, 16, 24, 24)
             setBackgroundColor(Color.rgb(41, 43, 47))
         }
+        root.addView(ImageView(this).apply {
+            setImageResource(R.drawable.flyaway_logo)
+            contentDescription = "Fly Away Indicator plane logo"
+            scaleType = ImageView.ScaleType.FIT_CENTER
+        }, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, (112 * resources.displayMetrics.density).toInt()
+        ))
         root.addView(AnimatedFlightView(this), LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, (142 * resources.displayMetrics.density).toInt()
+            LinearLayout.LayoutParams.MATCH_PARENT, (92 * resources.displayMetrics.density).toInt()
         ))
         root.addView(TextView(this).apply {
             text = "FLY AWAY INDICATOR"
             textSize = 24f
             setTextColor(Color.WHITE)
             typeface = android.graphics.Typeface.DEFAULT_BOLD
-            setPadding(0, 12, 0, 0)
+            setPadding(0, 8, 0, 0)
         })
         root.addView(TextView(this).apply {
             text = "CUSTOMER ACCESS"
@@ -49,7 +58,7 @@ class AccessGateActivity : Activity() {
         })
         root.addView(TextView(this).apply {
             text = "Admin authorization is required before recording or analysis can be used."
-            textSize = 16f; setTextColor(Color.LTGRAY); setPadding(0, 16, 0, 16)
+            textSize = 16f; setTextColor(Color.LTGRAY); setPadding(0, 12, 0, 12)
         })
         nameInput = EditText(this).apply { hint = "Your name"; inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS }
         root.addView(nameInput)

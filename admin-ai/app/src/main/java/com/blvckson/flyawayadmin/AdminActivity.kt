@@ -10,6 +10,8 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ImageView
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
+import android.view.View
 import android.widget.ScrollView
 import android.widget.TextView
 import org.json.JSONArray
@@ -136,7 +138,33 @@ class AdminActivity : Activity() {
         val scroll = ScrollView(this)
         scroll.addView(listing)
         root.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        styleDashboard(root)
         setContentView(root)
+    }
+
+    private fun styleDashboard(view: View) {
+        val card = GradientDrawable().apply { setColor(Color.rgb(32, 33, 36)); cornerRadius = dp(14).toFloat() }
+        when (view) {
+            is Button -> {
+                view.background = GradientDrawable().apply { setColor(Color.rgb(190, 35, 43)); cornerRadius = dp(12).toFloat() }
+                view.setTextColor(Color.WHITE); view.textSize = 14f; view.isAllCaps = false
+                view.typeface = android.graphics.Typeface.DEFAULT_BOLD
+                view.setPadding(dp(14), dp(10), dp(14), dp(10))
+                val lp = view.layoutParams
+                if (lp is LinearLayout.LayoutParams) { lp.setMargins(0, dp(5), 0, dp(5)); view.layoutParams = lp }
+            }
+            is EditText -> {
+                view.setTextColor(Color.WHITE); view.setHintTextColor(Color.LTGRAY)
+                view.background = GradientDrawable().apply { setColor(Color.rgb(32, 33, 36)); cornerRadius = dp(10).toFloat(); setStroke(dp(1), Color.rgb(100, 103, 110)) }
+                view.setPadding(dp(12), dp(10), dp(12), dp(10))
+            }
+            is TextView -> {
+                if (view.text.toString().contains("Saved customers") || view.text.toString().contains("Customer list has not")) {
+                    view.background = card; view.setPadding(dp(12), dp(12), dp(12), dp(12))
+                }
+            }
+        }
+        if (view is ViewGroup) for (i in 0 until view.childCount) styleDashboard(view.getChildAt(i))
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()

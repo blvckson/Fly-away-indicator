@@ -81,7 +81,7 @@ class AdminActivity : Activity() {
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(18, 18, 18, 18) }
         root.addView(TextView(this).apply { text = "Fly Away Admin AI"; textSize = 24f })
         root.addView(TextView(this).apply {
-            text = "Customer authorizations · default period: 14 days"
+            text = "Customer authorizations · default period: ${prefs.getInt(\"default_period_days\", 14)} days"
             setPadding(0, 8, 0, 12)
         })
         serverKey = EditText(this).apply {
@@ -91,11 +91,15 @@ class AdminActivity : Activity() {
         }
         root.addView(serverKey)
         root.addView(Button(this).apply {
+            text = "Set permanent Admin AI passcode (optional)"
+            setOnClickListener { setInitialPasscode() }
+        })
+        root.addView(Button(this).apply {
             text = "Save server key"
             setOnClickListener { prefs.edit().putString("admin_server_key", serverKey.text.toString().trim()).apply(); statusMessage("Server key saved on this device.") }
         })
         customerName = EditText(this).apply { hint = "Customer's full name"; inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS }
-        duration = EditText(this).apply { hint = "Authorization period in days (default 14)"; inputType = InputType.TYPE_CLASS_NUMBER; setText("14") }
+        duration = EditText(this).apply { hint = "Authorization period in days (default 14)"; inputType = InputType.TYPE_CLASS_NUMBER; setText(prefs.getInt("default_period_days", 14).toString()) }
         root.addView(customerName); root.addView(duration)
         root.addView(Button(this).apply { text = "Generate single-use authorization code"; setOnClickListener { createAuthorization() } })
         root.addView(Button(this).apply { text = "Refresh all customers"; setOnClickListener { loadCustomers() } })
@@ -159,7 +163,7 @@ class AdminActivity : Activity() {
                 if (days < 1) { statusMessage("Period must be at least one day."); return@setPositiveButton }
                 io.execute {
                     val result = runCatching { request("/v1/admin/settings/default-period", JSONObject().put("durationDays", days)) }
-                    runOnUiThread { result.onSuccess { statusMessage(it.optString("message", "Default period updated to $days days.")) }.onFailure { statusMessage(it.message ?: "Update failed.") } }
+                    runOnUiThread { result.onSuccess { prefs.edit().putInt("default_period_days", days).apply(); if (::duration.isInitialized) duration.setText(days.toString()); statusMessage(it.optString("message", "Default period updated to $days days.")) }.onFailure { statusMessage(it.message ?: "Update failed.") } }
                 }
             }.show()
     }

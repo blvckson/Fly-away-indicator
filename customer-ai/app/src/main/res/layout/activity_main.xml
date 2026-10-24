@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical" android:padding="16dp" android:background="#292B2F">
+    <LinearLayout
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:gravity="center_vertical"
+        android:paddingBottom="6dp">
+        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+            android:layout_weight="1" android:orientation="vertical">
+            <TextView android:id="@+id/title" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="FLY AWAY INDICATOR" android:textColor="#FFFFFF"
+                android:textSize="22sp" android:textStyle="bold"/>
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="FLIGHT MONITOR · CUSTOMER" android:textColor="#FF525B"
+                android:textSize="11sp" android:textStyle="bold" android:layout_marginTop="2dp"/>
+        </LinearLayout>
+        <TextView android:id="@+id/more" android:layout_width="48dp" android:layout_height="48dp"
+            android:gravity="center" android:text="⋮" android:textColor="#FF3038" android:textSize="30sp"
+            android:contentDescription="More options" android:clickable="true" android:focusable="true"/>
+    </LinearLayout>
+    <com.blvckson.flyawaycustomer.AnimatedFlightView
+        android:layout_width="match_parent" android:layout_height="136dp"
+        android:layout_marginTop="4dp" android:contentDescription="Animated hand-drawn plane, smoke and falling money"/>
+    <TextView android:id="@+id/status" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="8dp" android:padding="12dp" android:background="#202124"
+        android:textColor="#F5F5F5" android:textSize="14sp"
+        android:text="Ready — Aviator live-screen monitor is stopped."/>
+    <Button android:id="@+id/start" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="10dp" android:text="▶  START MONITOR" android:textAllCaps="false"
+        android:textStyle="bold" android:textColor="#FFFFFF" android:backgroundTint="#BE232B"
+        android:minHeight="48dp"/>
+    <Button android:id="@+id/stop" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="■  STOP MONITOR" android:textAllCaps="false" android:textColor="#FFFFFF"
+        android:backgroundTint="#55585F" android:minHeight="46dp"/>
+    <Button android:id="@+id/analysis" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="▤  RECORDED ROUNDS / ANALYSIS" android:textAllCaps="false"
+        android:textStyle="bold" android:textColor="#FFFFFF" android:backgroundTint="#383B41"
+        android:minHeight="48dp"/>
+    <TextView android:id="@+id/rounds" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginTop="6dp" android:padding="8dp" android:background="#202124"
+        android:textColor="#FF525B" android:textStyle="bold" android:textSize="14sp"
+        android:text="Recorded rounds: 0"/>
+    <TextView android:id="@+id/statement" android:layout_width="match_parent" android:layout_height="0dp"
+        android:layout_weight="1" android:layout_marginTop="10dp" android:textColor="#E5E5E5"
+        android:background="#202124" android:padding="14dp" android:textSize="14sp"
+        android:text="Statement Area&#10;&#10;No round has been analysed yet."/>
+</LinearLayout>

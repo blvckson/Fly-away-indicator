@@ -45,7 +45,7 @@ function publicRecord(record) {
     id: record.id, name: record.name, status, issuedAt: record.issuedAt,
     activatedAt: record.activatedAt, expiresAt: record.expiresAt,
     durationDays: record.durationDays, installationId: record.installationId || '',
-    codeState: record.codeHash ? 'unused' : 'consumed',
+    codeState: record.requestType === 'customer' ? 'not_required' : (record.codeHash ? 'unused' : 'consumed'),
     remainingSeconds: remainingSeconds(record)
   };
 }
@@ -123,7 +123,7 @@ const server = http.createServer(async (req, res) => {
   if (req.url === '/v1/customer/status') {
     const installationId = String(body.installationId || '').trim();
     if (!installationId) return fail(res, 400, 'Installation identifier is required.');
-    const record = data.authorizations.filter(x => x.installationId === installationId).sort((a, b) => String(b.activatedAt || '').localeCompare(String(a.activatedAt || '')))[0];
+    const record = data.authorizations.filter(x => x.installationId === installationId).sort((a, b) => String(b.issuedAt || '').localeCompare(String(a.issuedAt || '')))[0];
     if (!record) return send(res, 200, { authorized: false, status: 'not_requested', message: 'This installation has no authorization request.' });
     const status = safeStatus(record);
     if (status === 'pending') return send(res, 200, { authorized: false, status, message: 'Your authorization request is waiting for Admin approval.' });

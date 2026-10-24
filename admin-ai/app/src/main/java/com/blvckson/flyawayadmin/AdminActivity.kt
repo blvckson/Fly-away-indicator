@@ -148,7 +148,6 @@ class AdminActivity : Activity() {
                     if (json.optInt("_http") in 200..299) {
                         val code = json.optString("code", "")
                         status.text = "Authorization code for $name (share privately; single use):\n$code\nDuration: $days days from activation."
-                        loadCustomers()
                     } else status.text = json.optString("message", "Could not create authorization.")
                 }.onFailure { status.text = it.message ?: "Could not contact authorization service." }
             }

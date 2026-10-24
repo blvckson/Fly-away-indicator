@@ -101,7 +101,7 @@ const server = http.createServer(async (req, res) => {
   if (req.url === '/v1/customer/status') {
     const installationId = String(body.installationId || '').trim();
     if (!installationId) return fail(res, 400, 'Installation identifier is required.');
-    const record = data.authorizations.find(x => x.installationId === installationId);
+    const record = data.authorizations.filter(x => x.installationId === installationId).sort((a, b) => String(b.activatedAt || '').localeCompare(String(a.activatedAt || '')))[0];
     if (!record) return send(res, 200, { authorized: false, message: 'This installation has no authorization.' });
     const status = safeStatus(record);
     if (status !== 'active') return send(res, 200, { authorized: false, status, message: 'Authorization expired or deactivated.' });

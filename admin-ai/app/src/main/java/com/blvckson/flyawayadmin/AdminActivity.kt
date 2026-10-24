@@ -81,7 +81,7 @@ class AdminActivity : Activity() {
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(18, 18, 18, 18) }
         root.addView(TextView(this).apply { text = "Fly Away Admin AI"; textSize = 24f })
         root.addView(TextView(this).apply {
-            text = "Customer authorizations · default period: ${prefs.getInt(\"default_period_days\", 14)} days"
+            text = "Customer authorizations · default period: ${prefs.getInt("default_period_days", 14)} days"
             setPadding(0, 8, 0, 12)
         })
         serverKey = EditText(this).apply {

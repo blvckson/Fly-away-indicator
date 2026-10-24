@@ -182,7 +182,8 @@ class ScreenMonitorService : Service() {
         // Avoid turning red on ordinary early-round motion alone. Require a strong
         // combined score plus at least two independent visual/behaviour signals.
         // Evidence is normalized and deliberately does not depend on the multiplier value.
-        val evidenceCount=listOf(trendEvidence,visualEvidence,planeEvidence,movementEvidence).count{it}
+        val evidenceCount=(if(trendEvidence)1 else 0)+(if(visualEvidence)1 else 0)+
+            (if(planeEvidence)1 else 0)+(if(movementEvidence)1 else 0)
         val preEvidence=preScore >= 0.66 && evidenceCount >= 2 &&
             ((trendEvidence && visualEvidence) ||
              (visualEvidence && movementEvidence) ||

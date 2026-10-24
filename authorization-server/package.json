@@ -1,0 +1,9 @@
+{
+  "name": "fly-away-authorization-service",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Server-side single-use authorization, expiry, and revocation for Fly Away Customer AI",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "engines": { "node": ">=20" }
+}

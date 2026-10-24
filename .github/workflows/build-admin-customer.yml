@@ -35,6 +35,8 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.5'
+      - name: Validate authorization server syntax
+        run: node --check authorization-server/server.js
       - name: Build Admin AI APK
         env:
           AUTH_API_BASE_URL: ${{ vars.AUTH_API_BASE_URL }}

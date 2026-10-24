@@ -102,8 +102,14 @@ class LiveScreenDetector {
             val aspect = bw.toDouble() / bh
             // Exclude broad red labels/buttons and tiny noise. Aircraft icon sizes
             // vary with screen scale, so these are deliberately coarse bounds.
-            val compact = count in 2..160 && bw <= 30 && bh <= 22 &&
-                aspect in 0.35..4.8
+            // Scale bounds with the sampled screen grid. Different phones and
+            // display scaling can make the same aircraft occupy different pixel counts.
+            val maxComponentCount=max(160, redMask.size/110)
+            val maxComponentWidth=max(30, cols/7)
+            val maxComponentHeight=max(22, rows/6)
+            val compact = count in 2..maxComponentCount &&
+                bw <= maxComponentWidth && bh <= maxComponentHeight &&
+                aspect in 0.30..5.2
             val cx = gx0 + (sumX / count * step).toFloat()
             val cy = gy0 + (sumY / count * step).toFloat()
             // Ignore the very bottom UI and the far edges where unrelated red

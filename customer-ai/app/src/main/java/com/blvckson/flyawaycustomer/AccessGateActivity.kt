@@ -6,6 +6,8 @@ import android.content.Intent
 import android.os.Bundle
 import android.text.InputType
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
+import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
@@ -67,6 +69,7 @@ class AccessGateActivity : Activity() {
         root.addView(Button(this).apply { text = "Optional passcode settings"; setOnClickListener { configurePasscode() } })
         status = TextView(this).apply { text = "Not authorized."; setTextColor(Color.rgb(255, 82, 91)); setPadding(0, 18, 0, 0) }
         root.addView(status)
+        styleGate(root)
         setContentView(root)
         if (!prefs.getBoolean("passcode_recommendation_shown", false)) {
             AlertDialog.Builder(this).setTitle("Security recommendation")
@@ -75,6 +78,25 @@ class AccessGateActivity : Activity() {
                 .setNegativeButton("Skip for now") { _, _ -> markRecommendationShown() }.show()
         }
         checkExistingAuthorization()
+    }
+
+    private fun styleGate(view: View) {
+        when (view) {
+            is Button -> {
+                view.background = GradientDrawable().apply { setColor(Color.rgb(190, 35, 43)); cornerRadius = (12 * resources.displayMetrics.density) }
+                view.setTextColor(Color.WHITE); view.textSize = 14f; view.isAllCaps = false
+                view.typeface = android.graphics.Typeface.DEFAULT_BOLD
+                view.setPadding(14, 10, 14, 10)
+                val lp = view.layoutParams
+                if (lp is LinearLayout.LayoutParams) { lp.setMargins(0, 4, 0, 4); view.layoutParams = lp }
+            }
+            is EditText -> {
+                view.setTextColor(Color.WHITE); view.setHintTextColor(Color.LTGRAY)
+                view.background = GradientDrawable().apply { setColor(Color.rgb(32, 33, 36)); cornerRadius = (10 * resources.displayMetrics.density); setStroke((resources.displayMetrics.density).toInt().coerceAtLeast(1), Color.rgb(100, 103, 110)) }
+                view.setPadding(12, 10, 12, 10)
+            }
+        }
+        if (view is ViewGroup) for (i in 0 until view.childCount) styleGate(view.getChildAt(i))
     }
 
     private fun markRecommendationShown() { prefs.edit().putBoolean("passcode_recommendation_shown", true).apply() }

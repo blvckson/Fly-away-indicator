@@ -1,6 +1,19 @@
 <resources>
-    <style name="AppTheme" parent="android:style/Theme.Material.Light.NoActionBar">
+    <style name="AppTheme" parent="android:style/Theme.Material.NoActionBar">
         <item name="android:fontFamily">sans</item>
-        <item name="android:colorAccent">#D32F2F</item>
+        <item name="android:colorAccent">#FF3038</item>
+        <item name="android:statusBarColor">#191A1D</item>
+        <item name="android:navigationBarColor">#191A1D</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowBackground">#292B2F</item>
+        <item name="android:textColorPrimary">#F5F5F5</item>
+        <item name="android:textColorSecondary">#C5C7CA</item>
+        <item name="android:buttonStyle">@style/FlyAwayButton</item>
+    </style>
+    <style name="FlyAwayButton" parent="android:style/Widget.Material.Button">
+        <item name="android:backgroundTint">#E5232E</item>
+        <item name="android:textColor">#FFFFFF</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:minHeight">48dp</item>
     </style>
 </resources>

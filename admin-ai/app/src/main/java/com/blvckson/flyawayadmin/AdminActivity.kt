@@ -8,6 +8,8 @@ import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.ImageView
+import android.graphics.Color
 import android.widget.ScrollView
 import android.widget.TextView
 import org.json.JSONArray
@@ -78,9 +80,30 @@ class AdminActivity : Activity() {
         .digest(value.toByteArray()).joinToString("") { "%02x".format(it) }
 
     private fun showDashboard() {
-        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(18, 18, 18, 18) }
-        root.addView(TextView(this).apply { text = "Fly Away Admin AI"; textSize = 24f })
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(18, 18, 18, 18)
+            setBackgroundColor(Color.rgb(41, 43, 47))
+        }
+        root.addView(ImageView(this).apply {
+            setImageResource(R.drawable.flyaway_logo)
+            contentDescription = "Hand-drawn plane dropping money"
+            scaleType = ImageView.ScaleType.FIT_CENTER
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(150)))
         root.addView(TextView(this).apply {
+            text = "FLY AWAY INDICATOR"
+            textSize = 23f
+            setTextColor(Color.WHITE)
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+        })
+        root.addView(TextView(this).apply {
+            text = "ADMIN CONTROL CENTRE"
+            textSize = 12f
+            setTextColor(Color.rgb(255, 48, 56))
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+        })
+        root.addView(TextView(this).apply {
+            setTextColor(Color.LTGRAY)
             text = "Customer authorizations · default period: ${prefs.getInt("default_period_days", 14)} days"
             setPadding(0, 8, 0, 12)
         })
@@ -101,19 +124,22 @@ class AdminActivity : Activity() {
         customerName = EditText(this).apply { hint = "Customer's full name"; inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_WORDS }
         duration = EditText(this).apply { hint = "Authorization period in days (default 14)"; inputType = InputType.TYPE_CLASS_NUMBER; setText(prefs.getInt("default_period_days", 14).toString()) }
         root.addView(TextView(this).apply {
+            setTextColor(Color.WHITE)
             text = "Customers enter their own name in Customer AI and submit a request. Review pending requests below, then approve or reject each installation."
             setPadding(0, 8, 0, 12)
         })
         root.addView(Button(this).apply { text = "Refresh all customers"; setOnClickListener { loadCustomers() } })
         root.addView(Button(this).apply { text = "Set default authorization period"; setOnClickListener { setDefaultPeriod() } })
-        status = TextView(this).apply { text = "Ready. Server must be configured before codes can be issued."; setPadding(0, 12, 0, 12) }
+        status = TextView(this).apply { text = "Ready. Server must be configured before codes can be issued."; setTextColor(Color.rgb(255, 82, 91)); setPadding(0, 12, 0, 12) }
         root.addView(status)
-        listing = TextView(this).apply { text = "Customer list has not been loaded."; setTextIsSelectable(true) }
+        listing = TextView(this).apply { text = "Customer list has not been loaded."; setTextColor(Color.WHITE); setTextIsSelectable(true) }
         val scroll = ScrollView(this)
         scroll.addView(listing)
         root.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         setContentView(root)
     }
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
     private fun statusMessage(message: String) {
         if (::status.isInitialized) status.text = message

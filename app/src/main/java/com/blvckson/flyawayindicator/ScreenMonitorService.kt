@@ -172,9 +172,24 @@ class ScreenMonitorService : Service() {
 
         val trend=changeTrend()
         val central=centralChange(lastFrame,frame)
-        val preCandidate=(trend*0.36+central*0.24+state.planeScore*0.18+lastMove*0.22).coerceIn(0.0,1.0)
+        val planeEvidence=state.planeScore >= 0.12
+        val trendEvidence=trend >= 0.60
+        val visualEvidence=central >= 0.34
+        val movementEvidence=lastMove >= 0.18
+        val preCandidate=(trend*0.34+central*0.28+state.planeScore*0.16+lastMove*0.22).coerceIn(0.0,1.0)
         preScore=preScore*0.72+preCandidate*0.28
-        if(preScore>=0.62)preHold++ else preHold=max(0,preHold-1)
+
+        // Avoid turning red on ordinary early-round motion alone. Require a strong
+        // combined score plus at least two independent visual/behaviour signals.
+        // Evidence is normalized and deliberately does not depend on the multiplier value.
+        val evidenceCount=listOf(trendEvidence,visualEvidence,planeEvidence,movementEvidence).count{it}
+        val preEvidence=preScore >= 0.66 && evidenceCount >= 2 &&
+            ((trendEvidence && visualEvidence) ||
+             (visualEvidence && movementEvidence) ||
+             (trendEvidence && planeEvidence) ||
+             (planeEvidence && movementEvidence))
+        if(preEvidence) preHold=(preHold+1).coerceAtMost(8)
+        else preHold=max(0,preHold-2)
 
         // Separate visual continuity from OCR start confirmation. Once a
         // round has started, a temporary OCR miss must not stop its recording.

@@ -116,11 +116,27 @@ class ScreenMonitorService : Service() {
             if(overlayContainer==null) showOverlay()
             return START_STICKY
         }
+        // A sticky service can be recreated with a null Intent after Android
+        // reclaims its process. Do not immediately stop the service in that case:
+        // keep the foreground notification/overlay alive and avoid a crash.
         val code=intent?.getIntExtra("resultCode",-1) ?: -1
-        val data=intent?.getParcelableExtra<Intent>("data") ?: return START_NOT_STICKY
-        val pm=getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-        projection=pm.getMediaProjection(code,data)
-        if(projection==null)return START_NOT_STICKY
+        val data=intent?.getParcelableExtra<Intent>("data")
+        if(data==null){
+            if(projection!=null && reader==null) startCapture()
+            return START_STICKY
+        }
+
+        // Do not replace an active MediaProjection when a notification action
+        // merely asks to restore the floating display.
+        if(projection==null){
+            val pm=getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+            projection=try { pm.getMediaProjection(code,data) } catch (_:Throwable) { null }
+        }
+        if(projection==null){
+            publish("SCREEN CAPTURE PERMISSION REQUIRED",false,
+                "Monitoring paused. Open Fly Away Indicator and press START MONITOR to grant screen-capture permission again.")
+            return START_STICKY
+        }
         startCapture()
         return START_STICKY
     }
@@ -582,6 +598,12 @@ class ScreenMonitorService : Service() {
             .setContentIntent(restorePending)
             .setOngoing(true)
             .build()
+    }
+
+    // Removing the app task from Recents must not be treated as a request to
+    // stop monitoring: the foreground service owns the capture session.
+    override fun onTaskRemoved(rootIntent:Intent?){
+        super.onTaskRemoved(rootIntent)
     }
 
     override fun onDestroy(){

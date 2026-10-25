@@ -103,6 +103,8 @@ class ScreenMonitorService : Service() {
     private var indicatorPreDetected=false
     private var indicatorFrames=0
     private var indicatorBaselineScore=0.0
+    private var indicatorEndCooldownUntil=0L
+    private var indicatorRoundHadActivity=false
 
     override fun onCreate(){
         super.onCreate()
@@ -198,16 +200,35 @@ class ScreenMonitorService : Service() {
 
         // Start/end the colour detector independently from video recording.
         // Do not let low-threshold movement alone trigger the pre-fly-away warning.
-        if(visualLive){
-            indicatorLiveHits=(indicatorLiveHits+1).coerceAtMost(4)
+        val endConfirmed=textVerifier.isEndConfirmed()
+        val nowMs=System.currentTimeMillis()
+        if(endConfirmed){
+            // End markers can remain visible for several captured frames. Clear the
+            // warning once, then block re-arming until the end screen has passed.
+            indicatorRoundActive=false
+            indicatorLiveHits=0
             indicatorMisses=0
-            if(!indicatorRoundActive && indicatorLiveHits>=2){
+            indicatorPreScore=0.0
+            indicatorPreHold=0
+            indicatorPreDetected=false
+            indicatorFrames=0
+            indicatorBaselineScore=0.0
+            indicatorRoundHadActivity=false
+            indicatorBaseline.clear()
+            indicatorChanges.clear()
+            indicatorEndCooldownUntil=nowMs+1900L
+        }else if(visualLive){
+            indicatorLiveHits=(indicatorLiveHits+1).coerceAtMost(5)
+            indicatorMisses=0
+            if(!indicatorRoundActive && nowMs>=indicatorEndCooldownUntil && indicatorLiveHits>=2){
+                // Every round starts with a fresh baseline and a green indicator.
                 indicatorRoundActive=true
                 indicatorPreScore=0.0
                 indicatorPreHold=0
                 indicatorPreDetected=false
                 indicatorFrames=0
                 indicatorBaselineScore=0.0
+                indicatorRoundHadActivity=false
                 indicatorBaseline.clear()
                 indicatorChanges.clear()
             }
@@ -217,22 +238,46 @@ class ScreenMonitorService : Service() {
         }
 
         if(indicatorRoundActive){
-            // Restore the signal blend used by Build 75, which the user reported
-            // as detecting the pre-fly-away period well in short rounds. Keep it
-            // isolated from recording/saving, but do not add a baseline delay that
-            // can suppress the transition entirely.
+            indicatorFrames++
             val indicatorTrend=changeTrend(recentChanges)
+            val planeEvidence=state.planeScore>=0.09
+            val trendEvidence=indicatorTrend>=0.57
+            val visualEvidence=central>=0.12
+            val movementEvidence=lastMove>=0.10
             val candidate=(indicatorTrend*0.36+central*0.24+
-                state.planeScore*0.18+lastMove*0.22).coerceIn(0.0,1.0)
-            indicatorPreScore=indicatorPreScore*0.72+candidate*0.28
-            if(indicatorPreScore>=0.62) {
-                indicatorPreHold=(indicatorPreHold+1).coerceAtMost(8)
-            } else {
+                state.planeScore.coerceIn(0.0,1.0)*0.18+
+                lastMove.coerceIn(0.0,1.0)*0.22).coerceIn(0.0,1.0)
+
+            // Calibrate only the first few frames of this round. This avoids both
+            // the old 30-frame delay on short rounds and fixed-threshold early red
+            // on long rounds. The baseline is never updated with late-round data.
+            if(indicatorFrames<=6){
+                indicatorBaseline.addLast(candidate)
+                indicatorBaselineScore=indicatorBaseline.average()
+            }
+            val baselineReady=indicatorFrames>6 && indicatorBaseline.isNotEmpty()
+            val aboveRoundBaseline=baselineReady &&
+                candidate>=max(0.36,indicatorBaselineScore*1.28) &&
+                candidate-indicatorBaselineScore>=0.055
+            indicatorPreScore=indicatorPreScore*0.68+candidate*0.32
+
+            val evidenceCount=(if(trendEvidence)1 else 0)+(if(visualEvidence)1 else 0)+
+                (if(planeEvidence)1 else 0)+(if(movementEvidence)1 else 0)
+            val pairedEvidence=(trendEvidence && (visualEvidence || movementEvidence || planeEvidence)) ||
+                (visualEvidence && movementEvidence) || (movementEvidence && planeEvidence)
+            val preEvidence=aboveRoundBaseline && indicatorPreScore>=0.40 &&
+                evidenceCount>=2 && pairedEvidence
+            if(preEvidence){
+                indicatorRoundHadActivity=true
+                indicatorPreHold=(indicatorPreHold+1).coerceAtMost(7)
+            }else{
                 indicatorPreHold=max(0,indicatorPreHold-1)
             }
             if(indicatorPreHold>=3) indicatorPreDetected=true
 
-            if(textVerifier.isEndConfirmed() || indicatorMisses>=18){
+            // End screens can be missed by OCR. A sustained loss of live-game
+            // evidence ends this indicator cycle and guarantees a clean next round.
+            if(indicatorMisses>=18){
                 indicatorRoundActive=false
                 indicatorLiveHits=0
                 indicatorMisses=0
@@ -241,6 +286,7 @@ class ScreenMonitorService : Service() {
                 indicatorPreDetected=false
                 indicatorFrames=0
                 indicatorBaselineScore=0.0
+                indicatorRoundHadActivity=false
                 indicatorBaseline.clear()
                 indicatorChanges.clear()
             }

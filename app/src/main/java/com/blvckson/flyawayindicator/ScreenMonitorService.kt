@@ -468,7 +468,7 @@ class ScreenMonitorService : Service() {
             overlay?.text=buildOverlayText(status,pre)
             overlay?.textSize=overlayTextSize
             overlay?.setTextColor(0xFFFFFFFF.toInt())
-            overlay?.setBackgroundColor(when { pre -> 0xFFE53935.toInt(); recording -> 0xFF2E7D32.toInt(); else -> 0xE6202124.toInt() })
+            overlay?.setBackgroundColor(when { pre -> 0xFFE53935.toInt(); indicatorRoundActive || recording -> 0xFF2E7D32.toInt(); else -> 0xE6202124.toInt() })
         }
         sendBroadcast(Intent(ACTION_STATUS).putExtra(EXTRA_STATUS,status).putExtra(EXTRA_STATEMENT,statement).putExtra(EXTRA_RED,pre).putExtra(EXTRA_ROUNDS,store.all().size))
     }

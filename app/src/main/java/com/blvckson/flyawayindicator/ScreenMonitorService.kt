@@ -230,15 +230,19 @@ class ScreenMonitorService : Service() {
             // Learn this round's own initial visual-activity level, rather than
             // using a fixed multiplier or duration. This scales better across short
             // and long rounds and avoids treating ordinary early animation as a cue.
-            if(indicatorFrames<=30){
+            // Short rounds need a much shorter calibration window; 30 frames
+            // delayed the warning until after many fast rounds had already ended.
+            // Calibrate from the first 8 frames, then compare against that round's
+            // own activity so long rounds don't trip merely because time/multiplier grew.
+            if(indicatorFrames<=8){
                 indicatorBaseline.addLast(candidate)
                 indicatorBaselineScore=indicatorBaseline.average()
             }
-            val baselineReady=indicatorFrames>30 && indicatorBaseline.isNotEmpty()
+            val baselineReady=indicatorFrames>8 && indicatorBaseline.isNotEmpty()
             val aboveRoundBaseline=baselineReady &&
-                candidate >= max(0.42,indicatorBaselineScore*1.40) &&
-                (candidate-indicatorBaselineScore)>=0.10
-            indicatorPreScore=indicatorPreScore*0.76+candidate*0.24
+                candidate >= max(0.40,indicatorBaselineScore*1.35) &&
+                (candidate-indicatorBaselineScore)>=0.08
+            indicatorPreScore=indicatorPreScore*0.72+candidate*0.28
 
             val evidenceCount=(if(trendEvidence)1 else 0)+(if(visualEvidence)1 else 0)+
                 (if(planeEvidence)1 else 0)+(if(movementEvidence)1 else 0)
@@ -250,9 +254,11 @@ class ScreenMonitorService : Service() {
             // over an early false-positive colour flip.
             val preEvidence=aboveRoundBaseline && indicatorPreScore>=0.46 &&
                 evidenceCount>=2 && pairedEvidence
-            if(preEvidence) indicatorPreHold=(indicatorPreHold+1).coerceAtMost(10)
+            if(preEvidence) indicatorPreHold=(indicatorPreHold+1).coerceAtMost(8)
             else indicatorPreHold=max(0,indicatorPreHold-2)
-            if(indicatorPreHold>=5) indicatorPreDetected=true
+            // A four-frame corroborated rise reacts in short rounds while still
+            // requiring repeated evidence instead of a single animation spike.
+            if(indicatorPreHold>=4) indicatorPreDetected=true
 
             if(textVerifier.isEndConfirmed() || indicatorMisses>=18){
                 indicatorRoundActive=false

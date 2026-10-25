@@ -92,6 +92,15 @@ class ScreenMonitorService : Service() {
     @Volatile private var stableEndingSinceMs=0L
     private var lastRedRead=0L
     private val recentChanges=ArrayDeque<Double>()
+    // The pre-fly-away indicator has its own state/history. It must not be reset
+    // or gated by video recording, round saving, or background analysis.
+    private val indicatorChanges=ArrayDeque<Double>()
+    private var indicatorRoundActive=false
+    private var indicatorLiveHits=0
+    private var indicatorMisses=0
+    private var indicatorPreScore=0.0
+    private var indicatorPreHold=0
+    private var indicatorPreDetected=false
 
     override fun onCreate(){
         super.onCreate()
@@ -175,6 +184,8 @@ class ScreenMonitorService : Service() {
         val change=lastFrame?.let{frameDifference(it,frame)} ?: 0.0
         recentChanges.addLast(change)
         while(recentChanges.size>24)recentChanges.removeFirst()
+        indicatorChanges.addLast(change)
+        while(indicatorChanges.size>36)indicatorChanges.removeFirst()
 
         if(!state.planeX.isNaN() && !state.planeY.isNaN()){
             missing=0
@@ -186,35 +197,65 @@ class ScreenMonitorService : Service() {
             lastPlaneY=state.planeY
         }else missing++
 
-        val trend=changeTrend()
         val central=centralChange(lastFrame,frame)
-        val planeEvidence=state.planeScore >= 0.12
-        val trendEvidence=trend >= 0.60
-        val visualEvidence=central >= 0.34
-        val movementEvidence=lastMove >= 0.18
-        val preCandidate=(trend*0.34+central*0.28+state.planeScore*0.16+lastMove*0.22).coerceIn(0.0,1.0)
-        preScore=preScore*0.72+preCandidate*0.28
-
-        // Avoid turning red on ordinary early-round motion alone. Require a strong
-        // combined score plus at least two independent visual/behaviour signals.
-        // Evidence is normalized and deliberately does not depend on the multiplier value.
-        val evidenceCount=(if(trendEvidence)1 else 0)+(if(visualEvidence)1 else 0)+
-            (if(planeEvidence)1 else 0)+(if(movementEvidence)1 else 0)
-        val preEvidence=preScore >= 0.66 && evidenceCount >= 2 &&
-            ((trendEvidence && visualEvidence) ||
-             (visualEvidence && movementEvidence) ||
-             (trendEvidence && planeEvidence) ||
-             (planeEvidence && movementEvidence))
-        if(preEvidence) preHold=(preHold+1).coerceAtMost(8)
-        else preHold=max(0,preHold-2)
-
-        // Separate visual continuity from OCR start confirmation. Once a
-        // round has started, a temporary OCR miss must not stop its recording.
         val planePresent = !state.planeX.isNaN() && !state.planeY.isNaN()
         val visualLive = state.isLive &&
             state.sceneScore >= 0.16 &&
             state.planeScore >= 0.08 &&
             state.multiplierVisualScore >= 0.07
+
+        // Start and end the indicator's round independently from the recorder.
+        // A failed/slow video recorder or a save/analysis task must not reset its
+        // colour-transition detector.
+        if(visualLive && textVerifier.isVerified()){
+            indicatorLiveHits=(indicatorLiveHits+1).coerceAtMost(4)
+            indicatorMisses=0
+            if(!indicatorRoundActive && indicatorLiveHits>=2){
+                indicatorRoundActive=true
+                indicatorPreScore=0.0
+                indicatorPreHold=0
+                indicatorPreDetected=false
+                indicatorChanges.clear()
+            }
+        }else{
+            indicatorLiveHits=0
+            if(indicatorRoundActive) indicatorMisses=(indicatorMisses+1).coerceAtMost(24)
+        }
+
+        if(indicatorRoundActive){
+            val indicatorTrend=changeTrend(indicatorChanges)
+            val planeEvidence=state.planeScore >= 0.12
+            val trendEvidence=indicatorTrend >= 0.64
+            val visualEvidence=central >= 0.34
+            val movementEvidence=lastMove >= 0.18
+            val candidate=(indicatorTrend*0.34+central*0.28+
+                state.planeScore*0.16+lastMove*0.22).coerceIn(0.0,1.0)
+            indicatorPreScore=indicatorPreScore*0.72+candidate*0.28
+
+            // Require sustained, converging visual evidence rather than a fixed
+            // multiplier/time trigger. This is intended to reject early-round
+            // motion and reduce missed/duplicated transitions on long rounds.
+            val evidenceCount=(if(trendEvidence)1 else 0)+(if(visualEvidence)1 else 0)+
+                (if(planeEvidence)1 else 0)+(if(movementEvidence)1 else 0)
+            val preEvidence=indicatorPreScore>=0.68 && evidenceCount>=2 &&
+                ((trendEvidence && visualEvidence) ||
+                 (visualEvidence && movementEvidence) ||
+                 (trendEvidence && planeEvidence) ||
+                 (planeEvidence && movementEvidence))
+            if(preEvidence) indicatorPreHold=(indicatorPreHold+1).coerceAtMost(10)
+            else indicatorPreHold=max(0,indicatorPreHold-1)
+            if(indicatorPreHold>=4) indicatorPreDetected=true
+
+            if(textVerifier.isEndConfirmed() || indicatorMisses>=18){
+                indicatorRoundActive=false
+                indicatorLiveHits=0
+                indicatorMisses=0
+                indicatorPreScore=0.0
+                indicatorPreHold=0
+                indicatorPreDetected=false
+                indicatorChanges.clear()
+            }
+        }
 
         if(!recording){
             if(visualLive && textVerifier.isVerified()){
@@ -257,7 +298,7 @@ class ScreenMonitorService : Service() {
             // capturing briefly after it stabilizes so the ending transition is
             // included, even if the visual plane detector remains falsely live.
             if(endingMultiplierHits>=3) stableEndingFrames++ else stableEndingFrames=0
-            if(preHold>=3){
+            if(indicatorPreDetected){
                 publish("PRE-FLY-AWAY DETECTED",true,"Pre-fly-away visual/behavioural transition detected. Red indicator ON.")
             }else{
                 publish("RECORDING ROUND $round",false,"Whole Aviator live screen is being recorded; visual and plane behaviour are being tracked.")
@@ -285,6 +326,18 @@ class ScreenMonitorService : Service() {
                 (endingMultiplier.isNotBlank() || textVerifier.isEndConfirmed())
             // Save immediately; video analysis remains on its own background thread.
             if(roundFrames >= 20 && (redMultiplierFrozen || explicitEnd || sustainedPlaneDisappearance)) finishRound()
+        }
+
+        // If visual detection is active but recording is unavailable, keep the
+        // floating indicator alive and driven by its own detector.
+        if(!recording && indicatorRoundActive){
+            if(indicatorPreDetected){
+                publish("PRE-FLY-AWAY DETECTED",true,
+                    "Pre-fly-away visual/behavioural transition detected. Red indicator ON.")
+            }else{
+                publish("ROUND VISUAL MONITORING — GREEN",false,
+                    "Tracking visual behaviour independently of round recording/saving.")
+            }
         }
 
         lastFrame?.recycle()
@@ -374,9 +427,9 @@ class ScreenMonitorService : Service() {
         }
     }
 
-    private fun changeTrend():Double{
-        if(recentChanges.isEmpty())return 0.0
-        val a=recentChanges.toList()
+    private fun changeTrend(history:ArrayDeque<Double> = recentChanges):Double{
+        if(history.isEmpty())return 0.0
+        val a=history.toList()
         val early=a.take(max(1,a.size/2)).average()
         val late=a.takeLast(max(1,a.size/2)).average()
         return ((late-early)/max(0.012,early+0.012)+0.5).coerceIn(0.0,1.0)

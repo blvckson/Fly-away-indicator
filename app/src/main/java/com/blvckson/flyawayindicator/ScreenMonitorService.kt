@@ -217,48 +217,20 @@ class ScreenMonitorService : Service() {
         }
 
         if(indicatorRoundActive){
-            indicatorFrames++
-            val indicatorTrend=changeTrend(indicatorChanges)
-            val planeEvidence=state.planeScore >= 0.10
-            val trendEvidence=indicatorTrend >= 0.66
-            val visualEvidence=central >= 0.16
-            val movementEvidence=lastMove >= 0.14
-            val candidate=(indicatorTrend*0.38+central*0.24+
-                state.planeScore.coerceIn(0.0,1.0)*0.16+
-                lastMove.coerceIn(0.0,1.0)*0.22).coerceIn(0.0,1.0)
-
-            // Learn this round's own initial visual-activity level, rather than
-            // using a fixed multiplier or duration. This scales better across short
-            // and long rounds and avoids treating ordinary early animation as a cue.
-            // Short rounds need a much shorter calibration window; 30 frames
-            // delayed the warning until after many fast rounds had already ended.
-            // Calibrate from the first 8 frames, then compare against that round's
-            // own activity so long rounds don't trip merely because time/multiplier grew.
-            if(indicatorFrames<=8){
-                indicatorBaseline.addLast(candidate)
-                indicatorBaselineScore=indicatorBaseline.average()
-            }
-            val baselineReady=indicatorFrames>8 && indicatorBaseline.isNotEmpty()
-            val aboveRoundBaseline=baselineReady &&
-                candidate >= max(0.40,indicatorBaselineScore*1.35) &&
-                (candidate-indicatorBaselineScore)>=0.08
+            // Restore the signal blend used by Build 75, which the user reported
+            // as detecting the pre-fly-away period well in short rounds. Keep it
+            // isolated from recording/saving, but do not add a baseline delay that
+            // can suppress the transition entirely.
+            val indicatorTrend=changeTrend(recentChanges)
+            val candidate=(indicatorTrend*0.36+central*0.24+
+                state.planeScore*0.18+lastMove*0.22).coerceIn(0.0,1.0)
             indicatorPreScore=indicatorPreScore*0.72+candidate*0.28
-
-            val evidenceCount=(if(trendEvidence)1 else 0)+(if(visualEvidence)1 else 0)+
-                (if(planeEvidence)1 else 0)+(if(movementEvidence)1 else 0)
-            val pairedEvidence=(trendEvidence && (visualEvidence || movementEvidence || planeEvidence)) ||
-                (visualEvidence && movementEvidence) ||
-                (movementEvidence && planeEvidence)
-            // Require a meaningful rise above the early-round baseline and repeated
-            // corroborating signals. This deliberately favours a late, sustained cue
-            // over an early false-positive colour flip.
-            val preEvidence=aboveRoundBaseline && indicatorPreScore>=0.46 &&
-                evidenceCount>=2 && pairedEvidence
-            if(preEvidence) indicatorPreHold=(indicatorPreHold+1).coerceAtMost(8)
-            else indicatorPreHold=max(0,indicatorPreHold-2)
-            // A four-frame corroborated rise reacts in short rounds while still
-            // requiring repeated evidence instead of a single animation spike.
-            if(indicatorPreHold>=4) indicatorPreDetected=true
+            if(indicatorPreScore>=0.62) {
+                indicatorPreHold=(indicatorPreHold+1).coerceAtMost(8)
+            } else {
+                indicatorPreHold=max(0,indicatorPreHold-1)
+            }
+            if(indicatorPreHold>=3) indicatorPreDetected=true
 
             if(textVerifier.isEndConfirmed() || indicatorMisses>=18){
                 indicatorRoundActive=false

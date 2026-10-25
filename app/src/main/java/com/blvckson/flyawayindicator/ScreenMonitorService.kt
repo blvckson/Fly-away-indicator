@@ -246,14 +246,10 @@ class ScreenMonitorService : Service() {
             }
         }
 
-        if(!recording){
-            if(visualLive && textVerifier.isVerified()){
-                liveConfirmHits=(liveConfirmHits+1).coerceAtMost(6)
-                if(liveConfirmHits >= 2) startRound(w,h,density)
-            }else{
-                liveConfirmHits=0
-            }
-        }
+        // Round video recording, saving, and post-round analysis are intentionally
+        // disabled: they consumed CPU/storage and interfered with the user's priority,
+        // the live pre-fly-away colour indicator. Keep monitoring independent.
+        liveConfirmHits=0
 
         if(recording){
             val frameNow=System.currentTimeMillis()
@@ -464,7 +460,8 @@ class ScreenMonitorService : Service() {
 
     private fun updateLivePreview(frame:Bitmap){
         val now=System.currentTimeMillis()
-        if(now-lastPreviewUpdate<100L)return
+        // Refresh the optional live preview less often to reduce UI/bitmap overhead.
+        if(now-lastPreviewUpdate<300L)return
         lastPreviewUpdate=now
         val copy=try{Bitmap.createScaledBitmap(frame,previewWidth,previewHeight,true)}catch(_:Throwable){return}
         main.post{

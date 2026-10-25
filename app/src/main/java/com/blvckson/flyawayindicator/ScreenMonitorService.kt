@@ -207,7 +207,10 @@ class ScreenMonitorService : Service() {
         // Start and end the indicator's round independently from the recorder.
         // A failed/slow video recorder or a save/analysis task must not reset its
         // colour-transition detector.
-        if(visualLive && textVerifier.isVerified()){
+        // The colour indicator must follow visual round evidence, not OCR
+        // verification. OCR can miss/lag on small and large multipliers, which
+        // previously prevented the indicator from entering its active state.
+        if(visualLive){
             indicatorLiveHits=(indicatorLiveHits+1).coerceAtMost(4)
             indicatorMisses=0
             if(!indicatorRoundActive && indicatorLiveHits>=2){
@@ -224,24 +227,28 @@ class ScreenMonitorService : Service() {
 
         if(indicatorRoundActive){
             val indicatorTrend=changeTrend(indicatorChanges)
-            val planeEvidence=state.planeScore >= 0.12
-            val trendEvidence=indicatorTrend >= 0.64
-            val visualEvidence=central >= 0.34
-            val movementEvidence=lastMove >= 0.18
-            val candidate=(indicatorTrend*0.34+central*0.28+
-                state.planeScore*0.16+lastMove*0.22).coerceIn(0.0,1.0)
+            // Use normalized, device-independent evidence with attainable
+            // thresholds. The old 0.68 score gate was above the score this
+            // weighted combination could normally reach, so the overlay stayed
+            // green across both short and long rounds.
+            val planeEvidence=state.planeScore >= 0.09
+            val trendEvidence=indicatorTrend >= 0.57
+            val visualEvidence=central >= 0.12
+            val movementEvidence=lastMove >= 0.10
+            val candidate=(indicatorTrend*0.38+central*0.24+
+                state.planeScore.coerceIn(0.0,1.0)*0.16+
+                lastMove.coerceIn(0.0,1.0)*0.22).coerceIn(0.0,1.0)
             indicatorPreScore=indicatorPreScore*0.72+candidate*0.28
 
-            // Require sustained, converging visual evidence rather than a fixed
-            // multiplier/time trigger. This is intended to reject early-round
-            // motion and reduce missed/duplicated transitions on long rounds.
+            // Require a sustained rise in recent visual activity plus at least
+            // two independent signals. No multiplier or fixed round-duration
+            // trigger is used, so the same rule applies from low to high odds.
             val evidenceCount=(if(trendEvidence)1 else 0)+(if(visualEvidence)1 else 0)+
                 (if(planeEvidence)1 else 0)+(if(movementEvidence)1 else 0)
-            val preEvidence=indicatorPreScore>=0.68 && evidenceCount>=2 &&
-                ((trendEvidence && visualEvidence) ||
-                 (visualEvidence && movementEvidence) ||
-                 (trendEvidence && planeEvidence) ||
-                 (planeEvidence && movementEvidence))
+            val pairedEvidence=(trendEvidence && (visualEvidence || movementEvidence || planeEvidence)) ||
+                (visualEvidence && (movementEvidence || planeEvidence)) ||
+                (movementEvidence && planeEvidence)
+            val preEvidence=indicatorPreScore>=0.34 && evidenceCount>=2 && pairedEvidence
             if(preEvidence) indicatorPreHold=(indicatorPreHold+1).coerceAtMost(10)
             else indicatorPreHold=max(0,indicatorPreHold-1)
             if(indicatorPreHold>=4) indicatorPreDetected=true
@@ -611,7 +618,7 @@ class ScreenMonitorService : Service() {
                 if(!touchMoved){
                     val visible=image.visibility==android.view.View.VISIBLE
                     image.visibility=if(visible) android.view.View.GONE else android.view.View.VISIBLE
-                    label.text=buildOverlayText(if(recording) "RECORDING ROUND $round" else "WAITING FOR AVIATOR",preHold>=3)
+                    label.text=buildOverlayText(if(recording) "RECORDING ROUND $round" else "WAITING FOR AVIATOR",indicatorPreDetected)
                     if(!visible) label.text=label.text.toString()+"\nLive preview: actual captured screen"
                 }
                 overlayPrefs.edit().putInt("x",lp.x).putInt("y",lp.y).apply()

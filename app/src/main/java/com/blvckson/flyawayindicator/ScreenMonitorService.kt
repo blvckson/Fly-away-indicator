@@ -76,7 +76,6 @@ class ScreenMonitorService : Service() {
     private var liveMisses=0
     private var liveConfirmHits=0
     private var roundFrames=0
-    // End detection tolerates missed OCR frames and temporary plane-detector dropouts.
     private var planeSeenInRound=false
     private var planeMissingSinceMs=0L
     private var lastFrame:Bitmap?=null
@@ -92,15 +91,18 @@ class ScreenMonitorService : Service() {
     @Volatile private var stableEndingSinceMs=0L
     private var lastRedRead=0L
     private val recentChanges=ArrayDeque<Double>()
-    // The pre-fly-away indicator has its own state/history. It must not be reset
-    // or gated by video recording, round saving, or background analysis.
+    // The indicator remains independent from recording/saving. Its own early-round
+    // baseline prevents ordinary take-off animation from immediately turning it red.
     private val indicatorChanges=ArrayDeque<Double>()
+    private val indicatorBaseline=ArrayDeque<Double>()
     private var indicatorRoundActive=false
     private var indicatorLiveHits=0
     private var indicatorMisses=0
     private var indicatorPreScore=0.0
     private var indicatorPreHold=0
     private var indicatorPreDetected=false
+    private var indicatorFrames=0
+    private var indicatorBaselineScore=0.0
 
     override fun onCreate(){
         super.onCreate()
@@ -118,25 +120,17 @@ class ScreenMonitorService : Service() {
     }
 
     override fun onStartCommand(intent:Intent?,flags:Int,startId:Int):Int{
-        // Promote immediately. The service must remain foreground while another
-        // app (Aviator) is in front, otherwise Android may kill it and remove the overlay.
         startForeground(7,notification())
         if(intent?.action==ACTION_SHOW_OVERLAY){
             if(overlayContainer==null) showOverlay()
             return START_STICKY
         }
-        // A sticky service can be recreated with a null Intent after Android
-        // reclaims its process. Do not immediately stop the service in that case:
-        // keep the foreground notification/overlay alive and avoid a crash.
         val code=intent?.getIntExtra("resultCode",-1) ?: -1
         val data=intent?.getParcelableExtra<Intent>("data")
         if(data==null){
             if(projection!=null && reader==null) startCapture()
             return START_STICKY
         }
-
-        // Do not replace an active MediaProjection when a notification action
-        // merely asks to restore the floating display.
         if(projection==null){
             val pm=getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
             projection=try { pm.getMediaProjection(code,data) } catch (_:Throwable) { null }
@@ -177,8 +171,6 @@ class ScreenMonitorService : Service() {
     }
 
     private fun processFrame(frame:Bitmap,w:Int,h:Int,density:Int){
-        // OCR runs asynchronously and only acts as a start-recording gate.
-        // A generic screen transition or a red UI element cannot start a round.
         textVerifier.inspect(frame)
         val state=detector.inspect(frame)
         val change=lastFrame?.let{frameDifference(it,frame)} ?: 0.0
@@ -204,12 +196,8 @@ class ScreenMonitorService : Service() {
             state.planeScore >= 0.08 &&
             state.multiplierVisualScore >= 0.07
 
-        // Start and end the indicator's round independently from the recorder.
-        // A failed/slow video recorder or a save/analysis task must not reset its
-        // colour-transition detector.
-        // The colour indicator must follow visual round evidence, not OCR
-        // verification. OCR can miss/lag on small and large multipliers, which
-        // previously prevented the indicator from entering its active state.
+        // Start/end the colour detector independently from video recording.
+        // Do not let low-threshold movement alone trigger the pre-fly-away warning.
         if(visualLive){
             indicatorLiveHits=(indicatorLiveHits+1).coerceAtMost(4)
             indicatorMisses=0
@@ -218,6 +206,9 @@ class ScreenMonitorService : Service() {
                 indicatorPreScore=0.0
                 indicatorPreHold=0
                 indicatorPreDetected=false
+                indicatorFrames=0
+                indicatorBaselineScore=0.0
+                indicatorBaseline.clear()
                 indicatorChanges.clear()
             }
         }else{
@@ -226,32 +217,42 @@ class ScreenMonitorService : Service() {
         }
 
         if(indicatorRoundActive){
+            indicatorFrames++
             val indicatorTrend=changeTrend(indicatorChanges)
-            // Use normalized, device-independent evidence with attainable
-            // thresholds. The old 0.68 score gate was above the score this
-            // weighted combination could normally reach, so the overlay stayed
-            // green across both short and long rounds.
-            val planeEvidence=state.planeScore >= 0.09
-            val trendEvidence=indicatorTrend >= 0.57
-            val visualEvidence=central >= 0.12
-            val movementEvidence=lastMove >= 0.10
+            val planeEvidence=state.planeScore >= 0.10
+            val trendEvidence=indicatorTrend >= 0.66
+            val visualEvidence=central >= 0.16
+            val movementEvidence=lastMove >= 0.14
             val candidate=(indicatorTrend*0.38+central*0.24+
                 state.planeScore.coerceIn(0.0,1.0)*0.16+
                 lastMove.coerceIn(0.0,1.0)*0.22).coerceIn(0.0,1.0)
-            indicatorPreScore=indicatorPreScore*0.72+candidate*0.28
 
-            // Require a sustained rise in recent visual activity plus at least
-            // two independent signals. No multiplier or fixed round-duration
-            // trigger is used, so the same rule applies from low to high odds.
+            // Learn this round's own initial visual-activity level, rather than
+            // using a fixed multiplier or duration. This scales better across short
+            // and long rounds and avoids treating ordinary early animation as a cue.
+            if(indicatorFrames<=30){
+                indicatorBaseline.addLast(candidate)
+                indicatorBaselineScore=indicatorBaseline.average()
+            }
+            val baselineReady=indicatorFrames>30 && indicatorBaseline.isNotEmpty()
+            val aboveRoundBaseline=baselineReady &&
+                candidate >= max(0.42,indicatorBaselineScore*1.40) &&
+                (candidate-indicatorBaselineScore)>=0.10
+            indicatorPreScore=indicatorPreScore*0.76+candidate*0.24
+
             val evidenceCount=(if(trendEvidence)1 else 0)+(if(visualEvidence)1 else 0)+
                 (if(planeEvidence)1 else 0)+(if(movementEvidence)1 else 0)
             val pairedEvidence=(trendEvidence && (visualEvidence || movementEvidence || planeEvidence)) ||
-                (visualEvidence && (movementEvidence || planeEvidence)) ||
+                (visualEvidence && movementEvidence) ||
                 (movementEvidence && planeEvidence)
-            val preEvidence=indicatorPreScore>=0.34 && evidenceCount>=2 && pairedEvidence
+            // Require a meaningful rise above the early-round baseline and repeated
+            // corroborating signals. This deliberately favours a late, sustained cue
+            // over an early false-positive colour flip.
+            val preEvidence=aboveRoundBaseline && indicatorPreScore>=0.46 &&
+                evidenceCount>=2 && pairedEvidence
             if(preEvidence) indicatorPreHold=(indicatorPreHold+1).coerceAtMost(10)
-            else indicatorPreHold=max(0,indicatorPreHold-1)
-            if(indicatorPreHold>=4) indicatorPreDetected=true
+            else indicatorPreHold=max(0,indicatorPreHold-2)
+            if(indicatorPreHold>=5) indicatorPreDetected=true
 
             if(textVerifier.isEndConfirmed() || indicatorMisses>=18){
                 indicatorRoundActive=false
@@ -260,6 +261,9 @@ class ScreenMonitorService : Service() {
                 indicatorPreScore=0.0
                 indicatorPreHold=0
                 indicatorPreDetected=false
+                indicatorFrames=0
+                indicatorBaselineScore=0.0
+                indicatorBaseline.clear()
                 indicatorChanges.clear()
             }
         }
@@ -269,14 +273,11 @@ class ScreenMonitorService : Service() {
                 liveConfirmHits=(liveConfirmHits+1).coerceAtMost(6)
                 if(liveConfirmHits >= 2) startRound(w,h,density)
             }else{
-                // Reset instead of accumulating intermittent hits from unrelated pages.
                 liveConfirmHits=0
             }
         }
 
         if(recording){
-            // End tracking follows the aircraft itself, not the broader scene score.
-            // Require a sustained disappearance before using it as fallback end evidence.
             val frameNow=System.currentTimeMillis()
             if(planePresent){
                 planeSeenInRound=true
@@ -301,42 +302,23 @@ class ScreenMonitorService : Service() {
                     }
                 }
             }
-            // A repeated red end multiplier is independent end evidence. Keep
-            // capturing briefly after it stabilizes so the ending transition is
-            // included, even if the visual plane detector remains falsely live.
             if(endingMultiplierHits>=3) stableEndingFrames++ else stableEndingFrames=0
             if(indicatorPreDetected){
                 publish("PRE-FLY-AWAY DETECTED",true,"Pre-fly-away visual/behavioural transition detected. Red indicator ON.")
             }else{
                 publish("RECORDING ROUND $round",false,"Whole Aviator live screen is being recorded; visual and plane behaviour are being tracked.")
             }
-            // A frozen number or a missing plane by itself is not enough: capture can
-            // briefly drop frames and the game background remains visible after a crash.
-            // RedMultiplierReader only accepts red pixels, and repeated identical OCR
-            // readings are the evidence that the red final multiplier has stopped rising.
             roundFrames++
             val now=System.currentTimeMillis()
-            // Use elapsed time as well as repeated OCR hits. Capture processing can
-            // be slower than display refresh, so a frame-count-only threshold can
-            // postpone finalization indefinitely on slower phones.
             val redMultiplierFrozen = endingMultiplierHits >= 3 &&
                 stableEndingSinceMs > 0L && now-stableEndingSinceMs >= 850L
-            // FLEW AWAY is an explicit end marker. If the final red multiplier has
-            // already been read, don't require the red OCR engine to keep returning
-            // the same value forever before closing the MP4 and saving its record.
             val explicitEnd = textVerifier.isEndConfirmed() && roundFrames >= 8
-            // Fallback: after the plane was positively seen, a continuous 1.8 s
-            // disappearance plus either a readable red multiplier or the explicit
-            // FLEW AWAY marker closes the round despite intermittent OCR misses.
             val sustainedPlaneDisappearance = planeSeenInRound && !planePresent &&
                 planeMissingSinceMs > 0L && now-planeMissingSinceMs >= 1800L &&
                 (endingMultiplier.isNotBlank() || textVerifier.isEndConfirmed())
-            // Save immediately; video analysis remains on its own background thread.
             if(roundFrames >= 20 && (redMultiplierFrozen || explicitEnd || sustainedPlaneDisappearance)) finishRound()
         }
 
-        // If visual detection is active but recording is unavailable, keep the
-        // floating indicator alive and driven by its own detector.
         if(!recording && indicatorRoundActive){
             if(indicatorPreDetected){
                 publish("PRE-FLY-AWAY DETECTED",true,
@@ -381,8 +363,6 @@ class ScreenMonitorService : Service() {
         if(!recording)return
         val savedRound=round
         val savedEnding=endingMultiplier
-        // Finalize the encoder promptly, then immediately release the live detector
-        // to recognize the next round. Index writes and video analysis run off-thread.
         val file=try { recorder?.stop() } catch (_:Throwable) { null }
         recorder=null
         recording=false
@@ -405,9 +385,6 @@ class ScreenMonitorService : Service() {
         val savedPath=file?.absolutePath?:""
         publish("ROUND $savedRound END CONFIRMED — SAVING",false,
             "Round ended: FLEW AWAY / plane disappearance plus a stable red final multiplier. Next-round detection remains active.")
-        // Commit the round index immediately on the capture thread before queuing
-        // expensive video analysis. This makes the completed round visible without
-        // reopening the app or pressing STOP, and leaves analysis non-blocking.
         val previous=store.all()
         try {
             store.add(RoundRecord(savedRound,savedEnding,savedPath,0.0,0.0,
@@ -470,14 +447,10 @@ class ScreenMonitorService : Service() {
     }
 
     private fun publish(status:String,pre:Boolean,statement:String){
-        // Repeated identical per-frame status updates do not need another UI task,
-        // broadcast, or store read. Keep every real state/statement change intact.
         if(status==lastPublishedStatus && pre==lastPublishedPre && statement==lastPublishedStatement) return
         lastPublishedStatus=status
         lastPublishedPre=pre
         lastPublishedStatement=statement
-
-        // Log only state transitions, never every captured frame.
         if(status!=lastLoggedStatus){
             val stamp=SimpleDateFormat("HH:mm:ss",Locale.US).format(Date())
             overlayEvents.addLast("$stamp  $status")
@@ -511,8 +484,6 @@ class ScreenMonitorService : Service() {
         return "$marker$status\n$recordingLine\n$multiplier\n$analysis\n— Recent activity (oldest → newest) —\n$current\nDrag to move · tap to collapse · pinch to resize"
     }
 
-    // Display the actual bitmap delivered by MediaProjection/ImageReader.
-    // Updates are throttled to keep the UI responsive while capture stays full rate.
     private fun updateLivePreview(frame:Bitmap){
         val now=System.currentTimeMillis()
         if(now-lastPreviewUpdate<100L)return
@@ -568,7 +539,6 @@ class ScreenMonitorService : Service() {
         lp.x=overlayPrefs.getInt("x",24).coerceAtLeast(0)
         lp.y=overlayPrefs.getInt("y",80).coerceAtLeast(0)
         close.setOnClickListener{
-            // Hide only the floating UI. Recording, round saving and analysis keep running.
             try { wm?.removeView(panel) } catch (_:Throwable) {}
             overlayContainer=null
             overlay=null
@@ -660,8 +630,6 @@ class ScreenMonitorService : Service() {
             .build()
     }
 
-    // Removing the app task from Recents must not be treated as a request to
-    // stop monitoring: the foreground service owns the capture session.
     override fun onTaskRemoved(rootIntent:Intent?){
         super.onTaskRemoved(rootIntent)
     }

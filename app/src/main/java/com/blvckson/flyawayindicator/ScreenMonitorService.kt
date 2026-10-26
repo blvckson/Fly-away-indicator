@@ -256,16 +256,20 @@ class ScreenMonitorService : Service() {
                 indicatorBaselineScore=indicatorBaseline.average()
             }
             val baselineReady=indicatorFrames>6 && indicatorBaseline.isNotEmpty()
+            // The previous absolute cut-offs were unreachable for the normal score
+            // range: the weighted candidate usually stays below 0.36, so the overlay
+            // could remain green for every round. Use a lower, round-relative rise,
+            // plus corroborating visual/plane/movement evidence instead.
             val aboveRoundBaseline=baselineReady &&
-                candidate>=max(0.36,indicatorBaselineScore*1.28) &&
-                candidate-indicatorBaselineScore>=0.055
-            indicatorPreScore=indicatorPreScore*0.68+candidate*0.32
+                candidate>=max(0.22,indicatorBaselineScore*1.12) &&
+                candidate-indicatorBaselineScore>=0.025
+            indicatorPreScore=indicatorPreScore*0.58+candidate*0.42
 
             val evidenceCount=(if(trendEvidence)1 else 0)+(if(visualEvidence)1 else 0)+
                 (if(planeEvidence)1 else 0)+(if(movementEvidence)1 else 0)
             val pairedEvidence=(trendEvidence && (visualEvidence || movementEvidence || planeEvidence)) ||
                 (visualEvidence && movementEvidence) || (movementEvidence && planeEvidence)
-            val preEvidence=aboveRoundBaseline && indicatorPreScore>=0.40 &&
+            val preEvidence=aboveRoundBaseline && indicatorPreScore>=0.24 &&
                 evidenceCount>=2 && pairedEvidence
             if(preEvidence){
                 indicatorRoundHadActivity=true

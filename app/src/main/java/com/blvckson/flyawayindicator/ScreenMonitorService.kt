@@ -231,6 +231,10 @@ class ScreenMonitorService : Service() {
                 indicatorRoundHadActivity=false
                 indicatorBaseline.clear()
                 indicatorChanges.clear()
+                recentChanges.clear()
+                lastMove=0.0
+                lastPlaneX=Float.NaN
+                lastPlaneY=Float.NaN
             }
         }else{
             indicatorLiveHits=0
@@ -239,37 +243,35 @@ class ScreenMonitorService : Service() {
 
         if(indicatorRoundActive){
             indicatorFrames++
-            val indicatorTrend=changeTrend(recentChanges)
-            val planeEvidence=state.planeScore>=0.09
-            val trendEvidence=indicatorTrend>=0.57
-            val visualEvidence=central>=0.12
-            val movementEvidence=lastMove>=0.10
+            // Use this round's own change history. A global history lets the
+            // previous round distort the trend and can leave the indicator green.
+            val indicatorTrend=changeTrend(indicatorChanges)
+            val planeEvidence=state.planeScore>=0.08
+            val trendEvidence=indicatorTrend>=0.54
+            val visualEvidence=central>=0.08
+            val movementEvidence=lastMove>=0.07
             val candidate=(indicatorTrend*0.36+central*0.24+
                 state.planeScore.coerceIn(0.0,1.0)*0.18+
                 lastMove.coerceIn(0.0,1.0)*0.22).coerceIn(0.0,1.0)
 
-            // Calibrate only the first few frames of this round. This avoids both
-            // the old 30-frame delay on short rounds and fixed-threshold early red
-            // on long rounds. The baseline is never updated with late-round data.
-            if(indicatorFrames<=6){
+            // Establish a short early-round baseline, then detect a sustained
+            // relative rise. This avoids fixed odds/time cut-offs and keeps the
+            // same rule usable for short, medium and long rounds.
+            if(indicatorFrames<=5){
                 indicatorBaseline.addLast(candidate)
                 indicatorBaselineScore=indicatorBaseline.average()
             }
-            val baselineReady=indicatorFrames>6 && indicatorBaseline.isNotEmpty()
-            // The previous absolute cut-offs were unreachable for the normal score
-            // range: the weighted candidate usually stays below 0.36, so the overlay
-            // could remain green for every round. Use a lower, round-relative rise,
-            // plus corroborating visual/plane/movement evidence instead.
+            val baselineReady=indicatorFrames>5 && indicatorBaseline.isNotEmpty()
             val aboveRoundBaseline=baselineReady &&
-                candidate>=max(0.22,indicatorBaselineScore*1.12) &&
-                candidate-indicatorBaselineScore>=0.025
-            indicatorPreScore=indicatorPreScore*0.58+candidate*0.42
+                candidate>=max(0.18,indicatorBaselineScore*1.10) &&
+                candidate-indicatorBaselineScore>=0.015
+            indicatorPreScore=indicatorPreScore*0.55+candidate*0.45
 
             val evidenceCount=(if(trendEvidence)1 else 0)+(if(visualEvidence)1 else 0)+
                 (if(planeEvidence)1 else 0)+(if(movementEvidence)1 else 0)
             val pairedEvidence=(trendEvidence && (visualEvidence || movementEvidence || planeEvidence)) ||
                 (visualEvidence && movementEvidence) || (movementEvidence && planeEvidence)
-            val preEvidence=aboveRoundBaseline && indicatorPreScore>=0.24 &&
+            val preEvidence=aboveRoundBaseline && indicatorPreScore>=0.19 &&
                 evidenceCount>=2 && pairedEvidence
             if(preEvidence){
                 indicatorRoundHadActivity=true

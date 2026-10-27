@@ -104,6 +104,7 @@ class ScreenMonitorService : Service() {
     private var indicatorFrames=0
     private var indicatorBaselineScore=0.0
     private var indicatorEndCooldownUntil=0L
+    private var indicatorEndLatched=false
     private var indicatorRoundHadActivity=false
 
     override fun onCreate(){
@@ -202,6 +203,7 @@ class ScreenMonitorService : Service() {
         // Do not let low-threshold movement alone trigger the pre-fly-away warning.
         val endConfirmed=textVerifier.isEndConfirmed()
         val nowMs=System.currentTimeMillis()
+        if(!endConfirmed) indicatorEndLatched=false
         if(endConfirmed){
             // End markers can remain visible for several captured frames. Clear the
             // warning once, then block re-arming until the end screen has passed.
@@ -216,7 +218,15 @@ class ScreenMonitorService : Service() {
             indicatorRoundHadActivity=false
             indicatorBaseline.clear()
             indicatorChanges.clear()
-            indicatorEndCooldownUntil=nowMs+1900L
+            // Latch the end marker once. The OCR verifier can hold an end result
+            // briefly, so extending a long cooldown on every frame can skip the
+            // next short round entirely.
+            if(!indicatorEndLatched){
+                indicatorEndCooldownUntil=nowMs+350L
+                indicatorEndLatched=true
+            }
+            publish("WAITING FOR NEXT ROUND",false,
+                "Round-end marker detected. Indicator reset; waiting for fresh live-round evidence.")
         }else if(visualLive){
             indicatorLiveHits=(indicatorLiveHits+1).coerceAtMost(5)
             indicatorMisses=0
@@ -309,6 +319,8 @@ class ScreenMonitorService : Service() {
                 indicatorRoundHadActivity=false
                 indicatorBaseline.clear()
                 indicatorChanges.clear()
+                publish("WAITING FOR NEXT ROUND",false,
+                    "Live-round evidence ended. Indicator reset and ready for the next round.")
             }
         }
 

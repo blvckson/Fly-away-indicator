@@ -48,6 +48,11 @@ class AviatorTextVerifier {
                     if (text.contains("flew away") || text.contains("flewaway")) {
                         endedUntil = System.currentTimeMillis() + 1600L
                         lastResult = "Aviator round end confirmed: FLEW AWAY"
+                    } else {
+                        // Clear stale end confirmation as soon as OCR sees the new
+                        // live screen; otherwise a previous end marker can suppress
+                        // the next round's green-to-red detector for up to 1.6 seconds.
+                        endedUntil = 0L
                     }
                     val multiplier = Pattern.compile(
                         "\\b\\d{1,5}(?:\\.\\d{1,3})?\\s*x\\b",

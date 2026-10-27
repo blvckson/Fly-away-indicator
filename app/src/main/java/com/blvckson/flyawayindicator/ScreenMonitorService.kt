@@ -271,14 +271,28 @@ class ScreenMonitorService : Service() {
                 (if(planeEvidence)1 else 0)+(if(movementEvidence)1 else 0)
             val pairedEvidence=(trendEvidence && (visualEvidence || movementEvidence || planeEvidence)) ||
                 (visualEvidence && movementEvidence) || (movementEvidence && planeEvidence)
-            val preEvidence=aboveRoundBaseline && indicatorPreScore>=0.19 &&
-                evidenceCount>=2 && pairedEvidence
+            // A rising visual-change score by itself often occurs during take-off.
+            // Require late-flight geometry for the normal path: the aircraft must be
+            // moving into the upper/right flight area, not merely showing early animation.
+            val lateFlightRegion = planePresent &&
+                (state.planeX >= w * 0.62f || state.planeY <= h * 0.30f) &&
+                (lastMove >= 0.035 || candidate >= indicatorBaselineScore + 0.025)
+            // Very short rounds may end before the plane reaches the usual late-flight
+            // region. Permit that path only for a much stronger, multi-signal surge.
+            val strongShortRoundSignal = indicatorFrames >= 6 &&
+                indicatorTrend >= 0.72 &&
+                candidate >= max(0.24, indicatorBaselineScore + 0.075) &&
+                evidenceCount >= 3 && pairedEvidence
+            val preEvidence = aboveRoundBaseline && indicatorPreScore >= 0.19 &&
+                evidenceCount >= 2 && pairedEvidence &&
+                (lateFlightRegion || strongShortRoundSignal)
             if(preEvidence){
                 indicatorRoundHadActivity=true
                 indicatorPreHold=(indicatorPreHold+1).coerceAtMost(7)
             }else{
                 indicatorPreHold=max(0,indicatorPreHold-1)
             }
+            // Require a sustained late-stage signal; don't flash red on one noisy frame.
             if(indicatorPreHold>=3) indicatorPreDetected=true
 
             // End screens can be missed by OCR. A sustained loss of live-game

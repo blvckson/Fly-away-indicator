@@ -264,51 +264,64 @@ class ScreenMonitorService : Service() {
                 state.planeScore.coerceIn(0.0,1.0)*0.18+
                 lastMove.coerceIn(0.0,1.0)*0.22).coerceIn(0.0,1.0)
 
-            // Establish a short early-round baseline, then detect a sustained
-            // relative rise. This avoids fixed odds/time cut-offs and keeps the
-            // same rule usable for short, medium and long rounds.
-            if(indicatorFrames<=5){
+            // Capture a stronger per-round opening baseline. Eight samples reduce
+            // sensitivity to the initial take-off animation while remaining short
+            // enough to support genuinely short rounds.
+            if(indicatorFrames<=8){
                 indicatorBaseline.addLast(candidate)
                 indicatorBaselineScore=indicatorBaseline.average()
             }
-            val baselineReady=indicatorFrames>5 && indicatorBaseline.isNotEmpty()
-            val aboveRoundBaseline=baselineReady &&
-                candidate>=max(0.18,indicatorBaselineScore*1.10) &&
-                candidate-indicatorBaselineScore>=0.015
-            indicatorPreScore=indicatorPreScore*0.55+candidate*0.45
+            val baselineReady=indicatorFrames>8 && indicatorBaseline.isNotEmpty()
+            indicatorPreScore=indicatorPreScore*0.62+candidate*0.38
 
             val evidenceCount=(if(trendEvidence)1 else 0)+(if(visualEvidence)1 else 0)+
                 (if(planeEvidence)1 else 0)+(if(movementEvidence)1 else 0)
             val pairedEvidence=(trendEvidence && (visualEvidence || movementEvidence || planeEvidence)) ||
                 (visualEvidence && movementEvidence) || (movementEvidence && planeEvidence)
-            // Position alone is not a pre-fly signal: the plane can reach the upper/right
-            // area early in a very long round. Require a meaningful surge above this
-            // round's own opening baseline plus corroborating movement/visual evidence.
-            val baselineRise = candidate - indicatorBaselineScore
-            val strongVisualSurge = indicatorTrend >= 0.64 &&
-                baselineRise >= 0.055 &&
-                candidate >= max(0.25, indicatorBaselineScore * 1.40)
-            val lateFlightRegion = planePresent &&
-                (state.planeX >= w * 0.78f || state.planeY <= h * 0.20f)
-            // Short rounds can end before the plane reaches the late-flight region;
-            // allow only a sharper, multi-signal surge in that case.
-            val strongShortRoundSignal = indicatorFrames >= 4 &&
-                indicatorTrend >= 0.78 &&
-                candidate >= max(0.34, indicatorBaselineScore + 0.10) &&
-                evidenceCount >= 3 && pairedEvidence
-            val preEvidence = strongVisualSurge &&
-                indicatorPreScore >= 0.25 &&
-                evidenceCount >= 2 && pairedEvidence &&
-                ((lateFlightRegion && (lastMove >= 0.075 || central >= 0.12)) ||
-                    strongShortRoundSignal)
+
+            // The plane travels from the lower-left toward the upper-right. Requiring
+            // combined progress in BOTH axes avoids treating an early edge touch as
+            // proof that the round is near its end.
+            val horizontalProgress=if(planePresent)
+                ((state.planeX/w.toFloat()-0.12f)/0.76f).coerceIn(0f,1f) else 0f
+            val verticalProgress=if(planePresent)
+                ((0.68f-state.planeY/h.toFloat())/0.56f).coerceIn(0f,1f) else 0f
+            val flightProgress=(horizontalProgress*0.50f+verticalProgress*0.50f)
+            val lateFlightRegion=planePresent &&
+                horizontalProgress>=0.68f && verticalProgress>=0.68f &&
+                flightProgress>=0.76f
+
+            val baselineRise=candidate-indicatorBaselineScore
+            val strongVisualSurge=baselineReady &&
+                indicatorTrend>=0.70 &&
+                baselineRise>=max(0.060,indicatorBaselineScore*0.45) &&
+                candidate>=max(0.30,indicatorBaselineScore*1.55)
+
+            // A short round may end before the plane reaches the late-flight region.
+            // Permit that path only with a sharper-than-normal surge and three
+            // independent evidence channels; no timer or multiplier cutoff is used.
+            val strongShortRoundSignal=indicatorFrames>=4 &&
+                indicatorTrend>=0.82 &&
+                baselineRise>=max(0.085,indicatorBaselineScore*0.65) &&
+                candidate>=max(0.36,indicatorBaselineScore+0.12) &&
+                evidenceCount>=3 && pairedEvidence
+
+            val lateStageEvidence=lateFlightRegion &&
+                (lastMove>=0.075 || central>=0.12) &&
+                evidenceCount>=2 && pairedEvidence
+            val preEvidence=strongVisualSurge &&
+                indicatorPreScore>=0.28 &&
+                (lateStageEvidence || strongShortRoundSignal)
+
             if(preEvidence){
                 indicatorRoundHadActivity=true
-                indicatorPreHold=(indicatorPreHold+1).coerceAtMost(7)
+                indicatorPreHold=(indicatorPreHold+1).coerceAtMost(8)
             }else{
                 indicatorPreHold=max(0,indicatorPreHold-1)
             }
-            // Require a sustained late-stage signal; don't flash red on one noisy frame.
-            if(indicatorPreHold>=3) indicatorPreDetected=true
+            // Four consecutive confirmations reduce brief red flashes from animation
+            // noise. Once detected, red remains latched until round-end/reset logic.
+            if(indicatorPreHold>=4) indicatorPreDetected=true
 
             // End screens can be missed by OCR. A sustained loss of live-game
             // evidence ends this indicator cycle and guarantees a clean next round.

@@ -103,6 +103,8 @@ class ScreenMonitorService : Service() {
     private var indicatorPreDetected=false
     private var indicatorFrames=0
     private var indicatorBaselineScore=0.0
+    private var indicatorWarningVibrated=false
+    private var indicatorRoundStartedAt=0L
     private var indicatorEndCooldownUntil=0L
     private var indicatorEndLatched=false
     private var indicatorRoundHadActivity=false
@@ -216,6 +218,8 @@ class ScreenMonitorService : Service() {
             indicatorFrames=0
             indicatorBaselineScore=0.0
             indicatorRoundHadActivity=false
+            indicatorWarningVibrated=false
+            indicatorRoundStartedAt=0L
             indicatorBaseline.clear()
             indicatorChanges.clear()
             // Latch the end marker once. The OCR verifier can hold an end result
@@ -239,6 +243,8 @@ class ScreenMonitorService : Service() {
                 indicatorFrames=0
                 indicatorBaselineScore=0.0
                 indicatorRoundHadActivity=false
+                indicatorWarningVibrated=false
+                indicatorRoundStartedAt=nowMs
                 indicatorBaseline.clear()
                 indicatorChanges.clear()
                 recentChanges.clear()
@@ -252,79 +258,66 @@ class ScreenMonitorService : Service() {
         }
 
         if(indicatorRoundActive){
-            indicatorFrames++
-            // Use this round's own change history. A global history lets the
-            // previous round distort the trend and can leave the indicator green.
+            // Learn the ordinary behaviour of this round continuously. The baseline
+            // is based on observed behaviour, not a multiplier cutoff or a fixed
+            // number of captured frames.
             val indicatorTrend=changeTrend(indicatorChanges)
             val planeEvidence=state.planeScore>=0.08
-            val trendEvidence=indicatorTrend>=0.54
             val visualEvidence=central>=0.08
-            val movementEvidence=lastMove>=0.07
-            val candidate=(indicatorTrend*0.36+central*0.24+
-                state.planeScore.coerceIn(0.0,1.0)*0.18+
-                lastMove.coerceIn(0.0,1.0)*0.22).coerceIn(0.0,1.0)
+            val movementEvidence=lastMove>=0.015
+            val candidate=(indicatorTrend*0.34+central*0.26+
+                state.planeScore.coerceIn(0.0,1.0)*0.16+
+                lastMove.coerceIn(0.0,1.0)*0.24).coerceIn(0.0,1.0)
 
-            // Capture a per-round opening baseline from five samples. This filters
-            // the first-frame transition without preventing short rounds from being
-            // evaluated shortly after the baseline is established.
-            if(indicatorFrames<=5){
-                indicatorBaseline.addLast(candidate)
-                indicatorBaselineScore=indicatorBaseline.average()
-            }
-            val baselineReady=indicatorFrames>5 && indicatorBaseline.isNotEmpty()
-            indicatorPreScore=indicatorPreScore*0.62+candidate*0.38
+            val baselineValues=indicatorBaseline.toList().sorted()
+            val baselineMedian=if(baselineValues.isEmpty()) candidate
+                else baselineValues[baselineValues.size/2]
+            val deviations=baselineValues.map{abs(it-baselineMedian)}.sorted()
+            val baselineMad=if(deviations.isEmpty()) 0.0
+                else deviations[deviations.size/2]
 
-            val evidenceCount=(if(trendEvidence)1 else 0)+(if(visualEvidence)1 else 0)+
-                (if(planeEvidence)1 else 0)+(if(movementEvidence)1 else 0)
-            val pairedEvidence=(trendEvidence && (visualEvidence || movementEvidence || planeEvidence)) ||
-                (visualEvidence && movementEvidence) || (movementEvidence && planeEvidence)
+            // Look for a small but meaningful departure from this round's own
+            // normal pattern. Any channel can raise a warning; corroborating
+            // channels increase confidence. There is deliberately no fixed
+            // multiplier, plane-position, or frame-count gate.
+            val behaviourDelta=abs(candidate-baselineMedian)
+            val subtleChange=behaviourDelta>=max(0.008,baselineMad*1.35)
+            val visualDelta=change>=max(0.008,
+                (indicatorChanges.toList().sorted().let{v->
+                    if(v.isEmpty()) 0.0 else v[v.size/2]
+                })+0.006)
+            val planeMovementChange=movementEvidence && lastMove>=0.025
+            val corroboratingSignals=(if(subtleChange)1 else 0)+
+                (if(visualDelta)1 else 0)+(if(planeMovementChange)1 else 0)+
+                (if(visualEvidence)1 else 0)
 
-            // The plane travels from the lower-left toward the upper-right. Requiring
-            // combined progress in BOTH axes avoids treating an early edge touch as
-            // proof that the round is near its end.
-            val horizontalProgress=if(planePresent)
-                ((state.planeX/w.toFloat()-0.12f)/0.76f).coerceIn(0f,1f) else 0f
-            val verticalProgress=if(planePresent)
-                ((0.68f-state.planeY/h.toFloat())/0.56f).coerceIn(0f,1f) else 0f
-            val flightProgress=(horizontalProgress*0.50f+verticalProgress*0.50f)
-            val lateFlightRegion=planePresent &&
-                horizontalProgress>=0.68f && verticalProgress>=0.68f &&
-                flightProgress>=0.76f
-
-            val baselineRise=candidate-indicatorBaselineScore
-            val strongVisualSurge=baselineReady &&
-                indicatorTrend>=0.70 &&
-                baselineRise>=max(0.060,indicatorBaselineScore*0.45) &&
-                candidate>=max(0.30,indicatorBaselineScore*1.55)
-
-            // A short round may end before the plane reaches the late-flight region.
-            // Permit that path only with a sharper-than-normal surge and three
-            // independent evidence channels; no timer or multiplier cutoff is used.
-            val strongShortRoundSignal=indicatorFrames>=6 &&
-                indicatorTrend>=0.82 &&
-                baselineRise>=max(0.085,indicatorBaselineScore*0.65) &&
-                candidate>=max(0.36,indicatorBaselineScore+0.12) &&
-                evidenceCount>=3 && pairedEvidence
-
-            val lateStageEvidence=lateFlightRegion &&
-                (lastMove>=0.075 || central>=0.12) &&
-                evidenceCount>=2 && pairedEvidence
-            val preEvidence=strongVisualSurge &&
-                indicatorPreScore>=0.28 &&
-                (lateStageEvidence || strongShortRoundSignal)
+            // Give the live round a brief opportunity to establish its own normal
+            // behaviour. This is elapsed time, not a required number of frames.
+            val baselineEstablished=indicatorRoundStartedAt>0L &&
+                nowMs-indicatorRoundStartedAt>=250L && baselineValues.isNotEmpty()
+            val preEvidence=baselineEstablished &&
+                (subtleChange || visualDelta || planeMovementChange) &&
+                corroboratingSignals>=1
 
             if(preEvidence){
                 indicatorRoundHadActivity=true
-                indicatorPreHold=(indicatorPreHold+1).coerceAtMost(8)
+                indicatorPreDetected=true
+                if(!indicatorWarningVibrated){
+                    indicatorWarningVibrated=true
+                    vibrateWarning()
+                }
+                publish("PRE-FLY-AWAY CHANGE DETECTED",true,
+                    "A change from this round's normal visual/flight behaviour was detected. Red signal and vibration activated.")
             }else{
-                indicatorPreHold=max(0,indicatorPreHold-1)
+                // Only learn from non-warning observations so an unusual event does
+                // not immediately become the new normal and disappear from detection.
+                indicatorBaseline.addLast(candidate)
+                while(indicatorBaseline.size>48) indicatorBaseline.removeFirst()
+                indicatorBaselineScore=baselineMedian
             }
-            // Four consecutive confirmations reduce brief red flashes from animation
-            // noise. Once detected, red remains latched until round-end/reset logic.
-            if(indicatorPreHold>=4) indicatorPreDetected=true
 
-            // End screens can be missed by OCR. A sustained loss of live-game
-            // evidence ends this indicator cycle and guarantees a clean next round.
+            // The warning remains red for the rest of the live round. It is reset
+            // only when the round-ending state is recognised or live-round evidence ends.
             if(indicatorMisses>=18){
                 indicatorRoundActive=false
                 indicatorLiveHits=0
@@ -335,6 +328,8 @@ class ScreenMonitorService : Service() {
                 indicatorFrames=0
                 indicatorBaselineScore=0.0
                 indicatorRoundHadActivity=false
+                indicatorWarningVibrated=false
+                indicatorRoundStartedAt=0L
                 indicatorBaseline.clear()
                 indicatorChanges.clear()
                 publish("WAITING FOR NEXT ROUND",false,
@@ -514,6 +509,18 @@ class ScreenMonitorService : Service() {
             total+=abs((ca and 255)-(cb and 255));n+=3
         }
         return total.toDouble()/max(1,n*255)
+    }
+
+    private fun vibrateWarning(){
+        try{
+            val vibrator=getSystemService(VIBRATOR_SERVICE) as Vibrator
+            if(Build.VERSION.SDK_INT>=Build.VERSION_CODES.O){
+                vibrator.vibrate(VibrationEffect.createOneShot(220L,VibrationEffect.DEFAULT_AMPLITUDE))
+            }else{
+                @Suppress("DEPRECATION")
+                vibrator.vibrate(220L)
+            }
+        }catch(_:Throwable){}
     }
 
     private fun publish(status:String,pre:Boolean,statement:String){

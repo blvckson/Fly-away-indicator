@@ -264,14 +264,14 @@ class ScreenMonitorService : Service() {
                 state.planeScore.coerceIn(0.0,1.0)*0.18+
                 lastMove.coerceIn(0.0,1.0)*0.22).coerceIn(0.0,1.0)
 
-            // Capture a stronger per-round opening baseline. Eight samples reduce
-            // sensitivity to the initial take-off animation while remaining short
-            // enough to support genuinely short rounds.
-            if(indicatorFrames<=8){
+            // Capture a per-round opening baseline from five samples. This filters
+            // the first-frame transition without preventing short rounds from being
+            // evaluated shortly after the baseline is established.
+            if(indicatorFrames<=5){
                 indicatorBaseline.addLast(candidate)
                 indicatorBaselineScore=indicatorBaseline.average()
             }
-            val baselineReady=indicatorFrames>8 && indicatorBaseline.isNotEmpty()
+            val baselineReady=indicatorFrames>5 && indicatorBaseline.isNotEmpty()
             indicatorPreScore=indicatorPreScore*0.62+candidate*0.38
 
             val evidenceCount=(if(trendEvidence)1 else 0)+(if(visualEvidence)1 else 0)+
@@ -300,7 +300,7 @@ class ScreenMonitorService : Service() {
             // A short round may end before the plane reaches the late-flight region.
             // Permit that path only with a sharper-than-normal surge and three
             // independent evidence channels; no timer or multiplier cutoff is used.
-            val strongShortRoundSignal=indicatorFrames>=4 &&
+            val strongShortRoundSignal=indicatorFrames>=6 &&
                 indicatorTrend>=0.82 &&
                 baselineRise>=max(0.085,indicatorBaselineScore*0.65) &&
                 candidate>=max(0.36,indicatorBaselineScore+0.12) &&

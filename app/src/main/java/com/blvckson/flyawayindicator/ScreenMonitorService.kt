@@ -282,10 +282,11 @@ class ScreenMonitorService : Service() {
             // multiplier, plane-position, or frame-count gate.
             val behaviourDelta=abs(candidate-baselineMedian)
             val subtleChange=behaviourDelta>=max(0.008,baselineMad*1.35)
-            val visualDelta=change>=max(0.008,
-                (indicatorChanges.toList().sorted().let{v->
-                    if(v.isEmpty()) 0.0 else v[v.size/2]
-                })+0.006)
+            val recentChangeValues=indicatorChanges.toList().sorted()
+            val recentChangeMedian=if(recentChangeValues.isEmpty()) 0.0
+                else recentChangeValues[recentChangeValues.size/2]
+            val visualDelta=abs(change-recentChangeMedian)>=max(0.006,
+                recentChangeMedian*0.12)
             val planeMovementChange=movementEvidence && lastMove>=0.025
             val corroboratingSignals=(if(subtleChange)1 else 0)+
                 (if(visualDelta)1 else 0)+(if(planeMovementChange)1 else 0)+

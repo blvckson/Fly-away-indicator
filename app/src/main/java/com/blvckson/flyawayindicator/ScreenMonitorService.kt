@@ -196,7 +196,14 @@ class ScreenMonitorService : Service() {
 
         val central=centralChange(lastFrame,frame)
         val planePresent = !state.planeX.isNaN() && !state.planeY.isNaN()
+        // A visual resemblance alone must never arm pre-fly-away detection.
+        // Require the independent OCR verifier to confirm the Aviator multiplier
+        // together with the Aviator label or live bet controls, as well as the
+        // detector's tracked aircraft. This keeps the indicator green before the
+        // actual game/round is on screen (including the app's own launcher/UI).
+        val verifiedAviatorRound = textVerifier.isVerified() && planePresent
         val visualLive = state.isLive &&
+            verifiedAviatorRound &&
             state.sceneScore >= 0.16 &&
             state.planeScore >= 0.08 &&
             state.multiplierVisualScore >= 0.07

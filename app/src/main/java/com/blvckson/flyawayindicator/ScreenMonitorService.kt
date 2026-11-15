@@ -553,7 +553,7 @@ class ScreenMonitorService : Service() {
             overlay?.text=buildOverlayText(status,pre)
             overlay?.textSize=overlayTextSize
             overlay?.setTextColor(0xFFFFFFFF.toInt())
-            overlay?.setBackgroundColor(when { pre -> 0xFFE53935.toInt(); indicatorRoundActive || recording -> 0xFF2E7D32.toInt(); else -> 0xE6202124.toInt() })
+            overlay?.setBackgroundColor(if(pre) 0xFFE53935.toInt() else 0xFF2E7D32.toInt())
         }
         sendBroadcast(Intent(ACTION_STATUS).putExtra(EXTRA_STATUS,status).putExtra(EXTRA_STATEMENT,statement).putExtra(EXTRA_RED,pre).putExtra(EXTRA_ROUNDS,store.all().size))
     }
@@ -616,6 +616,8 @@ class ScreenMonitorService : Service() {
         label.text="● WAITING FOR AVIATOR\nLIVE CAPTURE PREVIEW — waiting for first frame\nDrag to move · tap to hide/show preview · pinch to resize"
         label.textSize=overlayTextSize
         label.setTextColor(0xFFFFFFFF.toInt())
+        // Idle, waiting, and normal live monitoring all start green; only a detected pre-fly-away change turns red.
+        label.setBackgroundColor(0xFF2E7D32.toInt())
         label.setPadding(10,8,10,8)
         panel.addView(titleBar)
         panel.addView(image)

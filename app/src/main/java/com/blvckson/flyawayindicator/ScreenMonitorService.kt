@@ -255,7 +255,7 @@ class ScreenMonitorService : Service() {
                 indicatorBaseline.clear()
                 indicatorChanges.clear()
                 indicatorTimedChanges.clear()
-                indicatorRoundStartedAtMs=nowMs
+                indicatorRoundStartedAtMs=SystemClock.elapsedRealtime()
                 indicatorPreSinceMs=0L
                 indicatorLastFrameAtMs=0L
                 recentChanges.clear()

@@ -94,6 +94,8 @@ class ScreenMonitorService : Service() {
     // The indicator remains independent from recording/saving. Its own early-round
     // baseline prevents ordinary take-off animation from immediately turning it red.
     private val indicatorChanges=ArrayDeque<Double>()
+    // Timestamped samples make trend and confirmation windows independent of capture FPS.
+    private val indicatorTimedChanges=ArrayDeque<Pair<Long,Double>>()
     private val indicatorBaseline=ArrayDeque<Double>()
     private var indicatorRoundActive=false
     private var indicatorLiveHits=0
@@ -106,6 +108,9 @@ class ScreenMonitorService : Service() {
     private var indicatorEndCooldownUntil=0L
     private var indicatorEndLatched=false
     private var indicatorRoundHadActivity=false
+    private var indicatorRoundStartedAtMs=0L
+    private var indicatorPreSinceMs=0L
+    private var indicatorLastFrameAtMs=0L
 
     override fun onCreate(){
         super.onCreate()
@@ -181,6 +186,10 @@ class ScreenMonitorService : Service() {
         while(recentChanges.size>24)recentChanges.removeFirst()
         indicatorChanges.addLast(change)
         while(indicatorChanges.size>36)indicatorChanges.removeFirst()
+        val frameTimeMs=SystemClock.elapsedRealtime()
+        indicatorTimedChanges.addLast(frameTimeMs to change)
+        while(indicatorTimedChanges.isNotEmpty() &&
+            frameTimeMs-indicatorTimedChanges.first().first>2600L) indicatorTimedChanges.removeFirst()
 
         if(!state.planeX.isNaN() && !state.planeY.isNaN()){
             missing=0
@@ -218,6 +227,10 @@ class ScreenMonitorService : Service() {
             indicatorRoundHadActivity=false
             indicatorBaseline.clear()
             indicatorChanges.clear()
+            indicatorTimedChanges.clear()
+            indicatorRoundStartedAtMs=0L
+            indicatorPreSinceMs=0L
+            indicatorLastFrameAtMs=0L
             // Latch the end marker once. The OCR verifier can hold an end result
             // briefly, so extending a long cooldown on every frame can skip the
             // next short round entirely.
@@ -241,6 +254,10 @@ class ScreenMonitorService : Service() {
                 indicatorRoundHadActivity=false
                 indicatorBaseline.clear()
                 indicatorChanges.clear()
+                indicatorTimedChanges.clear()
+                indicatorRoundStartedAtMs=nowMs
+                indicatorPreSinceMs=0L
+                indicatorLastFrameAtMs=0L
                 recentChanges.clear()
                 lastMove=0.0
                 lastPlaneX=Float.NaN
@@ -255,7 +272,7 @@ class ScreenMonitorService : Service() {
             indicatorFrames++
             // Use this round's own change history. A global history lets the
             // previous round distort the trend and can leave the indicator green.
-            val indicatorTrend=changeTrend(indicatorChanges)
+            val indicatorTrend=timeCalibratedTrend(frameTimeMs)
             val planeEvidence=state.planeScore>=0.08
             val trendEvidence=indicatorTrend>=0.54
             val visualEvidence=central>=0.08
@@ -267,15 +284,23 @@ class ScreenMonitorService : Service() {
             // Establish a short early-round baseline, then detect a sustained
             // relative rise. This avoids fixed odds/time cut-offs and keeps the
             // same rule usable for short, medium and long rounds.
-            if(indicatorFrames<=5){
+            // Learn the opening behaviour over elapsed time, not an arbitrary
+            // number of frames. Median resists a single animation/capture spike.
+            val roundAgeMs=frameTimeMs-indicatorRoundStartedAtMs
+            if(roundAgeMs<=1800L){
                 indicatorBaseline.addLast(candidate)
-                indicatorBaselineScore=indicatorBaseline.average()
+                while(indicatorBaseline.size>90) indicatorBaseline.removeFirst()
+                indicatorBaselineScore=median(indicatorBaseline)
             }
-            val baselineReady=indicatorFrames>5 && indicatorBaseline.isNotEmpty()
+            val baselineReady=roundAgeMs>=1800L && indicatorBaseline.size>=8
             val aboveRoundBaseline=baselineReady &&
                 candidate>=max(0.18,indicatorBaselineScore*1.10) &&
                 candidate-indicatorBaselineScore>=0.015
-            indicatorPreScore=indicatorPreScore*0.55+candidate*0.45
+            val frameDeltaMs=if(indicatorLastFrameAtMs==0L) 33L
+                else (frameTimeMs-indicatorLastFrameAtMs).coerceIn(1L,500L)
+            indicatorLastFrameAtMs=frameTimeMs
+            val smoothing=(frameDeltaMs/450.0).coerceIn(0.03,0.65)
+            indicatorPreScore=indicatorPreScore*(1.0-smoothing)+candidate*smoothing
 
             val evidenceCount=(if(trendEvidence)1 else 0)+(if(visualEvidence)1 else 0)+
                 (if(planeEvidence)1 else 0)+(if(movementEvidence)1 else 0)
@@ -297,12 +322,16 @@ class ScreenMonitorService : Service() {
                 (lastMove >= 0.075 || central >= 0.12 || indicatorTrend >= 0.78)
             if(preEvidence){
                 indicatorRoundHadActivity=true
+                if(indicatorPreSinceMs==0L) indicatorPreSinceMs=frameTimeMs
                 indicatorPreHold=(indicatorPreHold+1).coerceAtMost(7)
             }else{
-                indicatorPreHold=max(0,indicatorPreHold-1)
+                indicatorPreSinceMs=0L
+                indicatorPreHold=0
             }
-            // Require a sustained late-stage signal; don't flash red on one noisy frame.
-            if(indicatorPreHold>=3) indicatorPreDetected=true
+            // Confirm by elapsed time rather than three frames: this behaves
+            // consistently on fast and slow MediaProjection capture rates.
+            if(indicatorPreSinceMs>0L && frameTimeMs-indicatorPreSinceMs>=220L)
+                indicatorPreDetected=true
 
             // End screens can be missed by OCR. A sustained loss of live-game
             // evidence ends this indicator cycle and guarantees a clean next round.
@@ -321,6 +350,10 @@ class ScreenMonitorService : Service() {
                 indicatorRoundHadActivity=false
                 indicatorBaseline.clear()
                 indicatorChanges.clear()
+                indicatorTimedChanges.clear()
+                indicatorRoundStartedAtMs=0L
+                indicatorPreSinceMs=0L
+                indicatorLastFrameAtMs=0L
                 publish("WAITING FOR NEXT ROUND",false,
                     "Live-round evidence ended. Indicator reset and ready for the next round.")
             }
@@ -463,6 +496,25 @@ class ScreenMonitorService : Service() {
                     "The saved-round entry was retained; analysis update failed: ${e.javaClass.simpleName}")
             }
         }
+    }
+
+    private fun median(values:ArrayDeque<Double>):Double{
+        if(values.isEmpty()) return 0.0
+        val sorted=values.toList().sorted()
+        val mid=sorted.size/2
+        return if(sorted.size%2==0) (sorted[mid-1]+sorted[mid])/2.0 else sorted[mid]
+    }
+
+    // Compare two adjacent 800 ms windows. Samples are timestamped, so a
+    // variable frame rate cannot silently stretch or compress the trend window.
+    private fun timeCalibratedTrend(nowMs:Long):Double{
+        val samples=indicatorTimedChanges.filter { nowMs-it.first in 0L..1600L }
+        val earlier=samples.filter { nowMs-it.first in 800L..1600L }.map { it.second }
+        val recent=samples.filter { nowMs-it.first in 0L..799L }.map { it.second }
+        if(earlier.size<3 || recent.size<3) return 0.5
+        val early=earlier.average()
+        val late=recent.average()
+        return ((late-early)/max(0.012,early+0.012)+0.5).coerceIn(0.0,1.0)
     }
 
     private fun changeTrend(history:ArrayDeque<Double> = recentChanges):Double{

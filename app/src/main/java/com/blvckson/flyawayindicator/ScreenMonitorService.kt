@@ -531,12 +531,8 @@ class ScreenMonitorService : Service() {
 
     private fun vibrateForPreFlyAway(){
         try {
-            val vibrator = if (Build.VERSION.SDK_INT >= 31) {
-                (getSystemService(VIBRATOR_MANAGER_SERVICE) as VibratorManager).defaultVibrator
-            } else {
-                @Suppress("DEPRECATION")
-                getSystemService(VIBRATOR_SERVICE) as Vibrator
-            }
+            @Suppress("DEPRECATION")
+            val vibrator = getSystemService(VIBRATOR_SERVICE) as Vibrator
             if (Build.VERSION.SDK_INT >= 26) {
                 vibrator.vibrate(VibrationEffect.createOneShot(450L, VibrationEffect.DEFAULT_AMPLITUDE))
             } else {

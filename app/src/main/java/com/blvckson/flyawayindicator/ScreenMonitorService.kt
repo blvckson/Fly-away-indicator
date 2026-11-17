@@ -220,6 +220,7 @@ class ScreenMonitorService : Service() {
             indicatorPreDetected=false
             indicatorFrames=0
             indicatorBaselineScore=0.0
+            indicatorShortBaselineScore=0.0
             indicatorRoundHadActivity=false
             indicatorBaseline.clear()
             indicatorShortBaseline.clear()
@@ -228,7 +229,6 @@ class ScreenMonitorService : Service() {
             indicatorRoundStartedAtMs=0L
             indicatorPreSinceMs=0L
             indicatorLastFrameAtMs=0L
-            indicatorLastLiveAtMs=0L
             // Latch the end marker once. The OCR verifier can hold an end result
             // briefly, so extending a long cooldown on every frame can skip the
             // next short round entirely.
@@ -249,6 +249,7 @@ class ScreenMonitorService : Service() {
                 indicatorPreDetected=false
                 indicatorFrames=0
                 indicatorBaselineScore=0.0
+                indicatorShortBaselineScore=0.0
                 indicatorRoundHadActivity=false
                 indicatorBaseline.clear()
                 indicatorShortBaseline.clear()

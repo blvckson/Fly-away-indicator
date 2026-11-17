@@ -65,6 +65,9 @@ class LiveScreenDetector {
         var bestY = Float.NaN
         var bestAspect = 0.0
         val queue = IntArray(redMask.size)
+        // Keep the accepted connected-component ceiling consistent with the
+        // display-scaled compactness check below and the final scene candidate gate.
+        val maxComponentCount = max(160, redMask.size / 110)
         for (start in redMask.indices) {
             if (!redMask[start] || seen[start]) continue
             var head = 0
@@ -104,7 +107,6 @@ class LiveScreenDetector {
             // vary with screen scale, so these are deliberately coarse bounds.
             // Scale bounds with the sampled screen grid. Different phones and
             // display scaling can make the same aircraft occupy different pixel counts.
-            val maxComponentCount=max(160, redMask.size/110)
             val maxComponentWidth=max(30, cols/7)
             val maxComponentHeight=max(22, rows/6)
             val compact = count in 2..maxComponentCount &&
@@ -147,7 +149,7 @@ class LiveScreenDetector {
         // A compact aircraft-like red object AND the central game area are both
         // mandatory. Require repeat confirmation; movement is supporting evidence,
         // not a hard requirement, to tolerate paused/low-frame-rate capture.
-        val candidate = bestCount in 2..160 &&
+        val candidate = bestCount in 2..maxComponentCount &&
             bestAspect in 0.35..4.8 &&
             central >= 0.07 &&
             sceneScore >= 0.16

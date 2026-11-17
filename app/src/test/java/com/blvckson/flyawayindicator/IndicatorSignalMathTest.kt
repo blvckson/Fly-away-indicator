@@ -1,0 +1,86 @@
+package com.blvckson.flyawayindicator
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class IndicatorSignalMathTest {
+
+    @Test
+    fun medianIsResistantToOneLargeOutlier() {
+        assertEquals(
+            0.115,
+            IndicatorSignalMath.median(listOf(0.10, 0.11, 0.12, 0.99)),
+            0.000001
+        )
+    }
+
+    @Test
+    fun adjacentWindowTrendDetectsAnIncrease() {
+        val samples = listOf(
+            IndicatorSignalSample(500L, 0.10),
+            IndicatorSignalSample(700L, 0.10),
+            IndicatorSignalSample(820L, 0.40),
+            IndicatorSignalSample(950L, 0.40)
+        )
+
+        val trend = IndicatorSignalMath.windowTrend(samples, 1000L, 250L, 2)
+
+        assertTrue(trend != null && trend > 0.78)
+    }
+
+    @Test
+    fun adjacentWindowTrendDetectsADecrease() {
+        val samples = listOf(
+            IndicatorSignalSample(500L, 0.40),
+            IndicatorSignalSample(700L, 0.40),
+            IndicatorSignalSample(820L, 0.10),
+            IndicatorSignalSample(950L, 0.10)
+        )
+
+        val trend = IndicatorSignalMath.windowTrend(samples, 1000L, 250L, 2)
+
+        assertTrue(trend != null && trend < 0.22)
+    }
+
+    @Test
+    fun trendIsUnavailableWhenEitherWindowIsUndersampled() {
+        val samples = listOf(
+            IndicatorSignalSample(500L, 0.10),
+            IndicatorSignalSample(820L, 0.40),
+            IndicatorSignalSample(950L, 0.40)
+        )
+
+        assertNull(IndicatorSignalMath.windowTrend(samples, 1000L, 250L, 2))
+    }
+
+    @Test
+    fun futureSamplesAreNotCountedInTheTrendWindow() {
+        val samples = listOf(
+            IndicatorSignalSample(500L, 0.10),
+            IndicatorSignalSample(700L, 0.10),
+            IndicatorSignalSample(820L, 0.40),
+            IndicatorSignalSample(950L, 0.40),
+            IndicatorSignalSample(1200L, 1.00)
+        )
+
+        val trend = IndicatorSignalMath.windowTrend(samples, 1000L, 250L, 2)
+
+        assertTrue(trend != null && trend > 0.78)
+    }
+
+    @Test
+    fun roundResetUsesElapsedTimeNotFrameCount() {
+        assertFalse(IndicatorSignalMath.shouldResetRound(3999L, 1000L, 3000L))
+        assertTrue(IndicatorSignalMath.shouldResetRound(4000L, 1000L, 3000L))
+    }
+
+    @Test
+    fun resetDoesNotAcceptInvalidOrBackwardsTimestamps() {
+        assertFalse(IndicatorSignalMath.shouldResetRound(5000L, 0L, 3000L))
+        assertFalse(IndicatorSignalMath.shouldResetRound(900L, 1000L, 3000L))
+        assertFalse(IndicatorSignalMath.shouldResetRound(5000L, 1000L, 0L))
+    }
+}

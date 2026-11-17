@@ -46,6 +46,31 @@ class IndicatorSignalMathTest {
     }
 
     @Test
+    fun timeWeightedTrendIsNotBiasedByUnevenCaptureDensity() {
+        val evenlySampled = listOf(
+            IndicatorSignalSample(500L, 0.0),
+            IndicatorSignalSample(625L, 0.5),
+            IndicatorSignalSample(750L, 1.0),
+            IndicatorSignalSample(751L, 0.0),
+            IndicatorSignalSample(875L, 0.5),
+            IndicatorSignalSample(999L, 1.0)
+        )
+        val burstyCapture = listOf(
+            IndicatorSignalSample(500L, 0.0),
+            IndicatorSignalSample(750L, 1.0),
+            IndicatorSignalSample(751L, 0.0),
+            IndicatorSignalSample(752L, 0.0),
+            IndicatorSignalSample(999L, 1.0)
+        )
+
+        val evenTrend = IndicatorSignalMath.windowTrend(evenlySampled, 1000L, 250L, 2)
+        val burstyTrend = IndicatorSignalMath.windowTrend(burstyCapture, 1000L, 250L, 2)
+
+        assertTrue(evenTrend != null && burstyTrend != null)
+        assertEquals(evenTrend!!, burstyTrend!!, 0.01)
+    }
+
+    @Test
     fun trendIsUnavailableWhenEitherWindowIsUndersampled() {
         val samples = listOf(
             IndicatorSignalSample(500L, 0.10),

@@ -214,7 +214,7 @@ class ScreenMonitorService : Service() {
             // warning once, then block re-arming until the end screen has passed.
             indicatorRoundActive=false
             indicatorLiveHits=0
-            indicatorMisses=0
+            indicatorLastLiveAtMs=0L
             indicatorPreScore=0.0
             indicatorPreHold=0
             indicatorPreDetected=false

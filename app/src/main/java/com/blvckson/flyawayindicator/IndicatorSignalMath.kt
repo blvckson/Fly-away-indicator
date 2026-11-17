@@ -43,23 +43,43 @@ internal object IndicatorSignalMath {
     ): Double? {
         if (windowMs <= 0L || minimumSamples <= 0) return null
 
-        val earlier = ArrayList<Double>()
-        val recent = ArrayList<Double>()
+        val earlier = ArrayList<IndicatorSignalSample>()
+        val recent = ArrayList<IndicatorSignalSample>()
 
         for (sample in samples) {
             val age = nowMs - sample.timeMs
             when {
-                age in windowMs..(windowMs * 2L) -> earlier.add(sample.value)
-                age >= 0L && age < windowMs -> recent.add(sample.value)
+                age in windowMs..(windowMs * 2L) -> earlier.add(sample)
+                age >= 0L && age < windowMs -> recent.add(sample)
             }
         }
 
         if (earlier.size < minimumSamples || recent.size < minimumSamples) return null
 
-        val earlyAverage = earlier.average()
-        val recentAverage = recent.average()
+        // Time-weight each interval so a burst of high-FPS frames cannot dominate
+        // a window merely by contributing more samples than a slower interval.
+        val earlyAverage = timeWeightedAverage(earlier)
+        val recentAverage = timeWeightedAverage(recent)
         val denominator = maxOf(0.012, earlyAverage + 0.012)
         return ((recentAverage - earlyAverage) / denominator + 0.5).coerceIn(0.0, 1.0)
+    }
+
+    private fun timeWeightedAverage(samples: List<IndicatorSignalSample>): Double {
+        val ordered = samples.sortedBy { it.timeMs }
+        var weightedArea = 0.0
+        var coveredMs = 0L
+
+        for (index in 1 until ordered.size) {
+            val previous = ordered[index - 1]
+            val current = ordered[index]
+            val elapsed = current.timeMs - previous.timeMs
+            if (elapsed <= 0L) continue
+
+            weightedArea += (previous.value + current.value) * 0.5 * elapsed
+            coveredMs += elapsed
+        }
+
+        return if (coveredMs > 0L) weightedArea / coveredMs else ordered.map { it.value }.average()
     }
 
     /**

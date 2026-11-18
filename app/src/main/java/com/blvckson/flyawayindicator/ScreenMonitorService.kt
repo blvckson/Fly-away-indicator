@@ -360,7 +360,6 @@ class ScreenMonitorService : Service() {
             val frameDeltaMs=if(indicatorLastFrameAtMs==0L) 33L
                 else (frameTimeMs-indicatorLastFrameAtMs).coerceIn(1L,500L)
             indicatorLastFrameAtMs=frameTimeMs
-            val smoothing=(frameDeltaMs/450.0).coerceIn(0.03,0.65)
             indicatorPreScore=IndicatorSignalMath.smoothBuild75Score(
                 indicatorPreScore,candidate
             )
@@ -412,19 +411,6 @@ class ScreenMonitorService : Service() {
                 )
                 analysisHandler.post { indicatorTraceStore.append(traceSample) }
             }
-
-            if(preEvidence){
-                indicatorRoundHadActivity=true
-                if(indicatorPreSinceMs==0L) indicatorPreSinceMs=frameTimeMs
-                indicatorPreHold=(indicatorPreHold+1).coerceAtMost(7)
-            }else{
-                indicatorLastHoldFrameMs=0L
-                indicatorPreHold=0
-            }
-
-            val confirmationMs=if(strongShortRoundSignal) 140L else 220L
-            if(indicatorPreSinceMs>0L && frameTimeMs-indicatorPreSinceMs>=confirmationMs)
-                indicatorPreDetected=true
 
             // Reset on elapsed live-screen loss, not a frame count that changes with FPS.
             if(IndicatorSignalMath.shouldResetRound(frameTimeMs,indicatorLastLiveAtMs,3000L)){

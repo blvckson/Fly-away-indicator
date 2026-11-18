@@ -26,6 +26,15 @@ class LiveScreenDetector {
     private var missHits = 0
     private var confidence = 0.0
 
+    /** Clear aircraft confirmation history after a completed round. */
+    fun resetTracking() {
+        lastPlaneX = Float.NaN
+        lastPlaneY = Float.NaN
+        stableHits = 0
+        missHits = 0
+        confidence = 0.0
+    }
+
     fun inspect(frame: Bitmap): LiveScreenState {
         val w = frame.width
         val h = frame.height
@@ -162,7 +171,9 @@ class LiveScreenDetector {
             confidence = (confidence - 0.22).coerceAtLeast(0.0)
         }
 
-        val live = confidence >= 0.60 && stableHits >= 4 && missHits < 2
+        // Three consecutive aircraft + central-game confirmations are enough.
+        // ScreenMonitorService no longer adds a redundant second live-hit gate.
+        val live = confidence >= 0.60 && stableHits >= 3 && missHits < 2
         return LiveScreenState(
             live, planeScore, central, sceneScore,
             bestX, bestY

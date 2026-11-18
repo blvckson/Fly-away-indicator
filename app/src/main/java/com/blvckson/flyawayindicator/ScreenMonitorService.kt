@@ -308,7 +308,10 @@ class ScreenMonitorService : Service() {
                 indicatorPreHold=max(0,indicatorPreHold-1)
             }
             // Require a sustained late-stage signal; don't flash red on one noisy frame.
-            if(indicatorPreHold>=3) indicatorPreDetected=true
+            if(indicatorPreHold>=3 && !indicatorPreDetected){
+                indicatorPreDetected=true
+                alertPreFlyAway()
+            }
 
             // End screens can be missed by OCR. A sustained loss of live-game
             // evidence ends this indicator cycle and guarantees a clean next round.
@@ -503,6 +506,25 @@ class ScreenMonitorService : Service() {
         return total.toDouble()/max(1,n*255)
     }
 
+    private fun alertPreFlyAway(){
+        try {
+            val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                (getSystemService(VIBRATOR_MANAGER_SERVICE) as VibratorManager).defaultVibrator
+            } else {
+                @Suppress("DEPRECATION")
+                getSystemService(VIBRATOR_SERVICE) as Vibrator
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                vibrator.vibrate(VibrationEffect.createOneShot(450L, VibrationEffect.DEFAULT_AMPLITUDE))
+            } else {
+                @Suppress("DEPRECATION")
+                vibrator.vibrate(450L)
+            }
+        } catch (_:Throwable) {
+            // Visual red alert remains available if vibration hardware/service is unavailable.
+        }
+    }
+
     private fun publish(status:String,pre:Boolean,statement:String){
         if(status==lastPublishedStatus && pre==lastPublishedPre && statement==lastPublishedStatement) return
         lastPublishedStatus=status
@@ -525,7 +547,7 @@ class ScreenMonitorService : Service() {
             overlay?.text=buildOverlayText(status,pre)
             overlay?.textSize=overlayTextSize
             overlay?.setTextColor(0xFFFFFFFF.toInt())
-            overlay?.setBackgroundColor(when { pre -> 0xFFE53935.toInt(); indicatorRoundActive || recording -> 0xFF2E7D32.toInt(); else -> 0xE6202124.toInt() })
+            overlay?.setBackgroundColor(when { indicatorRoundActive && indicatorPreDetected -> 0xFFE53935.toInt(); indicatorRoundActive -> 0xFF2E7D32.toInt(); else -> 0xFF000000.toInt() })
         }
         sendBroadcast(Intent(ACTION_STATUS).putExtra(EXTRA_STATUS,status).putExtra(EXTRA_STATEMENT,statement).putExtra(EXTRA_RED,pre).putExtra(EXTRA_ROUNDS,store.all().size))
     }
@@ -588,6 +610,7 @@ class ScreenMonitorService : Service() {
         label.text="● WAITING FOR AVIATOR\nLIVE CAPTURE PREVIEW — waiting for first frame\nDrag to move · tap to hide/show preview · pinch to resize"
         label.textSize=overlayTextSize
         label.setTextColor(0xFFFFFFFF.toInt())
+        label.setBackgroundColor(0xFF000000.toInt())
         label.setPadding(10,8,10,8)
         panel.addView(titleBar)
         panel.addView(image)

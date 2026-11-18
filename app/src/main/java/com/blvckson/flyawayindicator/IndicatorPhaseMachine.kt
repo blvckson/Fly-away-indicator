@@ -21,7 +21,7 @@ internal object LiveStartPolicy {
         val strongTwoFrameStart = stableHits >= 2 &&
             confidence >= 0.40 &&
             centralScore >= 0.10 &&
-            sceneScore >= 0.19 &&
+            sceneScore >= 0.18 &&
             planeScore >= 0.10
 
         val normalConfirmedStart = stableHits >= 3 && confidence >= 0.60

@@ -126,46 +126,48 @@ internal object IndicatorSignalMath {
     }
 
     /**
-     * Detect a sustained, baseline-relative visual surge.
-     *
-     * A trend increase must be corroborated by at least one independent visual
-     * cue: central-area change, aircraft movement, bounding-box geometry change,
-     * or aircraft silhouette/aspect-ratio change. Aircraft presence alone is not
-     * enough. Thresholds are intentionally lower than the former 0.64/0.78 gates
-     * because those gates produced no red transitions in the user's device test.
+     * Build 75 activity trend: compare the first and second halves of this
+     * round's rolling sample window. No fixed FPS or full wall-clock windows
+     * are required.
      */
-    fun shouldTriggerPreFlySurge(
-        baselineReady: Boolean,
-        shortBaselineReady: Boolean,
-        standardTrend: Double?,
-        shortTrend: Double?,
-        candidateScore: Double,
-        baselineScore: Double,
+    fun relativeActivityTrend(values: List<Double>): Double {
+        if (values.isEmpty()) return 0.0
+        val half = maxOf(1, values.size / 2)
+        val earlierAverage = values.take(half).average()
+        val recentAverage = values.takeLast(half).average()
+        return ((recentAverage - earlierAverage) /
+            maxOf(0.012, earlierAverage + 0.012) + 0.5).coerceIn(0.0, 1.0)
+    }
+
+    /** Exact weighted signal blend used by the previously successful Build 75. */
+    fun build75Candidate(
+        indicatorTrend: Double,
         centralChange: Double,
-        movementScore: Double,
-        geometryChange: Double,
-        shapeChange: Double
-    ): Boolean {
-        val corroboratingSignals =
-            (if (centralChange >= 0.06) 1 else 0) +
-            (if (movementScore >= 0.05) 1 else 0) +
-            (if (geometryChange >= 0.04) 1 else 0) +
-            (if (shapeChange >= 0.06) 1 else 0)
+        planeScore: Double,
+        movementScore: Double
+    ): Double {
+        return (indicatorTrend.coerceIn(0.0, 1.0) * 0.36 +
+            centralChange.coerceIn(0.0, 1.0) * 0.24 +
+            planeScore.coerceIn(0.0, 1.0) * 0.18 +
+            movementScore.coerceIn(0.0, 1.0) * 0.22).coerceIn(0.0, 1.0)
+    }
 
-        if (corroboratingSignals == 0) return false
+    /** Frame-to-frame smoothing from Build 75; independent of capture FPS. */
+    fun smoothBuild75Score(previousScore: Double, candidateScore: Double): Double {
+        return (previousScore.coerceIn(0.0, 1.0) * 0.72 +
+            candidateScore.coerceIn(0.0, 1.0) * 0.28).coerceIn(0.0, 1.0)
+    }
 
-        val normalBaselineRise =
-            candidateScore >= maxOf(0.19, baselineScore * 1.06) &&
-            candidateScore - baselineScore >= 0.012
-        val normalSurge = baselineReady &&
-            standardTrend != null && standardTrend >= 0.58 &&
-            normalBaselineRise
-
-        val shortSurge = shortBaselineReady &&
-            shortTrend != null && shortTrend >= 0.70 &&
-            candidateScore >= maxOf(0.24, baselineScore + 0.045)
-
-        return normalSurge || shortSurge
+    /**
+     * Three high-score frames confirm the warning. A weak frame decays the hold
+     * by one instead of clearing it, matching the previously successful build.
+     */
+    fun updateBuild75Hold(currentHold: Int, smoothedScore: Double): Int {
+        return if (smoothedScore >= 0.62) {
+            (currentHold + 1).coerceAtMost(8)
+        } else {
+            maxOf(0, currentHold - 1)
+        }
     }
 
     /**

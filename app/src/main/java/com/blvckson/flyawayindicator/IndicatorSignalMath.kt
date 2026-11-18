@@ -86,6 +86,12 @@ internal object IndicatorSignalMath {
         }
 
         if (earlier.size < minimumSamples || recent.size < minimumSamples) return null
+        // Require observations to span a meaningful part of each window. A burst
+        // of adjacent frames must not masquerade as a trend across 250/800 ms.
+        val minimumCoverageMs = maxOf(1L, windowMs / 2L)
+        if (sampleSpanMs(earlier) < minimumCoverageMs ||
+            sampleSpanMs(recent) < minimumCoverageMs
+        ) return null
 
         // Time-weight each interval so a burst of high-FPS frames cannot dominate
         // a window merely by contributing more samples than a slower interval.
@@ -93,6 +99,12 @@ internal object IndicatorSignalMath {
         val recentAverage = timeWeightedAverage(recent)
         val denominator = maxOf(0.012, earlyAverage + 0.012)
         return ((recentAverage - earlyAverage) / denominator + 0.5).coerceIn(0.0, 1.0)
+    }
+
+    private fun sampleSpanMs(samples: List<IndicatorSignalSample>): Long {
+        if (samples.size < 2) return 0L
+        val times = samples.map { it.timeMs }
+        return (times.maxOrNull() ?: 0L) - (times.minOrNull() ?: 0L)
     }
 
     private fun timeWeightedAverage(samples: List<IndicatorSignalSample>): Double {

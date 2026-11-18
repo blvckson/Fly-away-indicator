@@ -29,6 +29,37 @@ internal object IndicatorSignalMath {
     }
 
     /**
+     * Relative bounding-box size change between adjacent frames.
+     * Missing, zero, or non-finite prior measurements are treated as unavailable.
+     */
+    fun relativeGeometryChange(
+        currentWidth: Double,
+        currentHeight: Double,
+        previousWidth: Double?,
+        previousHeight: Double?
+    ): Double {
+        if (!currentWidth.isFinite() || !currentHeight.isFinite() ||
+            currentWidth <= 0.0 || currentHeight <= 0.0 ||
+            previousWidth == null || previousHeight == null ||
+            !previousWidth.isFinite() || !previousHeight.isFinite() ||
+            previousWidth <= 0.0 || previousHeight <= 0.0
+        ) return 0.0
+
+        val widthDelta = kotlin.math.abs(currentWidth - previousWidth) / maxOf(0.002, previousWidth)
+        val heightDelta = kotlin.math.abs(currentHeight - previousHeight) / maxOf(0.002, previousHeight)
+        return ((widthDelta + heightDelta) / 2.0).coerceIn(0.0, 1.0)
+    }
+
+    /** Relative aspect-ratio change, kept separate from translation and scale. */
+    fun relativeShapeChange(currentAspect: Double, previousAspect: Double?): Double {
+        if (!currentAspect.isFinite() || currentAspect <= 0.0 ||
+            previousAspect == null || !previousAspect.isFinite() || previousAspect <= 0.0
+        ) return 0.0
+        return (kotlin.math.abs(currentAspect - previousAspect) / maxOf(0.10, previousAspect))
+            .coerceIn(0.0, 1.0)
+    }
+
+    /**
      * Compares two adjacent time windows:
      * [now - 2*window, now - window] against [now - window, now).
      *

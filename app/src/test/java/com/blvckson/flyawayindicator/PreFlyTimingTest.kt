@@ -46,6 +46,7 @@ class PreFlyTimingTest {
     @Test
     fun confirmationAdaptsToCaptureCadence() {
         assertEquals(3,PreFlyTiming.requiredConfirmations(50L))
+        assertEquals(2,PreFlyTiming.requiredConfirmations(100L))
         assertEquals(2,PreFlyTiming.requiredConfirmations(220L))
     }
 }

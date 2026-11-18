@@ -120,6 +120,19 @@ class IndicatorSignalMathTest {
     }
 
     @Test
+    fun tightlyClusteredSamplesDoNotClaimAFullTimeWindow() {
+        val samples = listOf(
+            IndicatorSignalSample(500L, 0.10),
+            IndicatorSignalSample(510L, 0.10),
+            IndicatorSignalSample(520L, 0.10),
+            IndicatorSignalSample(820L, 0.40),
+            IndicatorSignalSample(830L, 0.40),
+            IndicatorSignalSample(840L, 0.40)
+        )
+        assertNull(IndicatorSignalMath.windowTrend(samples, 1000L, 250L, 2))
+    }
+
+    @Test
     fun futureSamplesAreNotCountedInTheTrendWindow() {
         val samples = listOf(
             IndicatorSignalSample(500L, 0.10),

@@ -83,7 +83,7 @@ internal class IndicatorTraceStore(private val context: Context) {
             val output = BufferedWriter(FileWriter(file, false), 64 * 1024)
             output.write(HEADER)
             output.newLine()
-            output.write("START,$wallTimeMs,0,,,,,,,,,,,,,,,,,,,,,,,,")
+            output.write(eventRow("START", wallTimeMs, 0L))
             output.newLine()
             output.flush()
             writer = output
@@ -161,8 +161,7 @@ internal class IndicatorTraceStore(private val context: Context) {
         val output = writer
         if (output != null) {
             try {
-                val safeReason = reason.replace("\"", "\"\"")
-                output.write("END,${System.currentTimeMillis()},$elapsedMs,,,,,,,,,,,,,,,,,,,,,,,,\"$safeReason\"")
+                output.write(eventRow("END", System.currentTimeMillis(), elapsedMs, reason))
                 output.newLine()
                 output.flush()
             } catch (_: Throwable) {
@@ -174,6 +173,17 @@ internal class IndicatorTraceStore(private val context: Context) {
         currentFile = null
         pendingRows = 0
         return file?.absolutePath
+    }
+
+    private fun eventRow(type: String, wallTimeMs: Long, elapsedMs: Long, reason: String = ""): String {
+        val fields = MutableList(HEADER.split(",").size) { "" }
+        fields[0] = type
+        fields[1] = wallTimeMs.toString()
+        fields[2] = elapsedMs.toString()
+        if (reason.isNotBlank()) {
+            fields[fields.lastIndex] = "\"${reason.replace("\"", "\"\"")}\""
+        }
+        return fields.joinToString(",")
     }
 
     private fun closeWriter() {

@@ -126,6 +126,49 @@ internal object IndicatorSignalMath {
     }
 
     /**
+     * Detect a sustained, baseline-relative visual surge.
+     *
+     * A trend increase must be corroborated by at least one independent visual
+     * cue: central-area change, aircraft movement, bounding-box geometry change,
+     * or aircraft silhouette/aspect-ratio change. Aircraft presence alone is not
+     * enough. Thresholds are intentionally lower than the former 0.64/0.78 gates
+     * because those gates produced no red transitions in the user's device test.
+     */
+    fun shouldTriggerPreFlySurge(
+        baselineReady: Boolean,
+        shortBaselineReady: Boolean,
+        standardTrend: Double?,
+        shortTrend: Double?,
+        candidateScore: Double,
+        baselineScore: Double,
+        centralChange: Double,
+        movementScore: Double,
+        geometryChange: Double,
+        shapeChange: Double
+    ): Boolean {
+        val corroboratingSignals =
+            (if (centralChange >= 0.06) 1 else 0) +
+            (if (movementScore >= 0.05) 1 else 0) +
+            (if (geometryChange >= 0.04) 1 else 0) +
+            (if (shapeChange >= 0.06) 1 else 0)
+
+        if (corroboratingSignals == 0) return false
+
+        val normalBaselineRise =
+            candidateScore >= maxOf(0.19, baselineScore * 1.06) &&
+            candidateScore - baselineScore >= 0.012
+        val normalSurge = baselineReady &&
+            standardTrend != null && standardTrend >= 0.58 &&
+            normalBaselineRise
+
+        val shortSurge = shortBaselineReady &&
+            shortTrend != null && shortTrend >= 0.70 &&
+            candidateScore >= maxOf(0.24, baselineScore + 0.045)
+
+        return normalSurge || shortSurge
+    }
+
+    /**
      * A round is reset only after the live-screen evidence has been absent for
      * the complete timeout. This is independent of the device's capture FPS.
      */

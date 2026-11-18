@@ -173,7 +173,10 @@ class LiveScreenDetector {
 
         // Three consecutive aircraft + central-game confirmations are enough.
         // ScreenMonitorService no longer adds a redundant second live-hit gate.
-        val live = confidence >= 0.60 && stableHits >= 3 && missHits < 2
+        // Report live only while the current frame still contains the confirmed
+        // aircraft/game candidate. The phase machine provides the three-frame
+        // dropout debounce, avoiding detector hysteresis being stacked on top of it.
+        val live = confidence >= 0.60 && stableHits >= 3 && missHits == 0
         return LiveScreenState(
             live, planeScore, central, sceneScore,
             bestX, bestY

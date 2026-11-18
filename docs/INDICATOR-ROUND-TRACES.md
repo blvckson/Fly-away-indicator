@@ -17,7 +17,7 @@ Each CSV contains per-frame timestamps and numeric detector observations:
 - Full-frame and central-region visual change.
 - Aircraft centroid, bounding-box width/height, pixel count, aspect ratio and fill ratio.
 - Relative aircraft geometry and shape changes from the previous observation.
-- Plane movement score.
+- Both the service's smoothed movement score and the detector's raw frame-to-frame movement score.
 - 800 ms and 250 ms time-window trend measurements.
 - Current candidate and round baseline scores.
 - Whether the pre-warning condition was met, whether the indicator was red, OCR verification state, visual live-screen state and OCR end marker state.

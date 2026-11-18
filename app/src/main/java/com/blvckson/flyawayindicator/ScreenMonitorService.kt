@@ -254,7 +254,13 @@ class ScreenMonitorService : Service() {
             indicatorFrames++
             // Keep trend samples strictly within this confirmed round. The opening
             // frame is retained instead of being discarded by the BLACK -> GREEN reset.
-            indicatorChanges.addLast(change)
+            // Ignore the lobby-to-live screen cut in the trend and central-change
+            // channels; it is a round-start transition, not a pre-fly signal.
+            val roundJustStarted = previousIndicatorPhase==IndicatorPhase.BLACK &&
+                currentIndicatorPhase==IndicatorPhase.GREEN
+            val indicatorFrameChange=if(roundJustStarted) 0.0 else change
+            val indicatorCentralChange=if(roundJustStarted) 0.0 else central
+            indicatorChanges.addLast(indicatorFrameChange)
             while(indicatorChanges.size>10)indicatorChanges.removeFirst()
 
             // Use monotonic capture cadence, not wall-clock time. This keeps the
@@ -274,7 +280,7 @@ class ScreenMonitorService : Service() {
             val indicatorTrend=changeTrend(indicatorChanges)
             val signals=PreFlySignals(
                 trend=indicatorTrend,
-                central=central,
+                central=indicatorCentralChange,
                 plane=state.planeScore,
                 movement=lastMove
             )

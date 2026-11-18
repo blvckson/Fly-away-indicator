@@ -103,6 +103,8 @@ class ScreenMonitorService : Service() {
     private var indicatorPreDetected=false
     private var indicatorFrames=0
     private var indicatorBaselineScore=0.0
+    private var indicatorWarningVibrated=false
+    private var indicatorRoundStartedAt=0L
     private var indicatorEndCooldownUntil=0L
     private var indicatorEndLatched=false
     private var indicatorRoundHadActivity=false
@@ -194,7 +196,14 @@ class ScreenMonitorService : Service() {
 
         val central=centralChange(lastFrame,frame)
         val planePresent = !state.planeX.isNaN() && !state.planeY.isNaN()
+        // A visual resemblance alone must never arm pre-fly-away detection.
+        // Require the independent OCR verifier to confirm the Aviator multiplier
+        // together with the Aviator label or live bet controls, as well as the
+        // detector's tracked aircraft. This keeps the indicator green before the
+        // actual game/round is on screen (including the app's own launcher/UI).
+        val verifiedAviatorRound = textVerifier.isVerified() && planePresent
         val visualLive = state.isLive &&
+            verifiedAviatorRound &&
             state.sceneScore >= 0.16 &&
             state.planeScore >= 0.08 &&
             state.multiplierVisualScore >= 0.07
@@ -216,6 +225,8 @@ class ScreenMonitorService : Service() {
             indicatorFrames=0
             indicatorBaselineScore=0.0
             indicatorRoundHadActivity=false
+            indicatorWarningVibrated=false
+            indicatorRoundStartedAt=0L
             indicatorBaseline.clear()
             indicatorChanges.clear()
             // Latch the end marker once. The OCR verifier can hold an end result
@@ -239,6 +250,8 @@ class ScreenMonitorService : Service() {
                 indicatorFrames=0
                 indicatorBaselineScore=0.0
                 indicatorRoundHadActivity=false
+                indicatorWarningVibrated=false
+                indicatorRoundStartedAt=nowMs
                 indicatorBaseline.clear()
                 indicatorChanges.clear()
                 recentChanges.clear()
@@ -252,66 +265,67 @@ class ScreenMonitorService : Service() {
         }
 
         if(indicatorRoundActive){
-            indicatorFrames++
-            // Use this round's own change history. A global history lets the
-            // previous round distort the trend and can leave the indicator green.
+            // Learn the ordinary behaviour of this round continuously. The baseline
+            // is based on observed behaviour, not a multiplier cutoff or a fixed
+            // number of captured frames.
             val indicatorTrend=changeTrend(indicatorChanges)
             val planeEvidence=state.planeScore>=0.08
-            val trendEvidence=indicatorTrend>=0.54
             val visualEvidence=central>=0.08
-            val movementEvidence=lastMove>=0.07
-            val candidate=(indicatorTrend*0.36+central*0.24+
-                state.planeScore.coerceIn(0.0,1.0)*0.18+
-                lastMove.coerceIn(0.0,1.0)*0.22).coerceIn(0.0,1.0)
+            val movementEvidence=lastMove>=0.015
+            val candidate=(indicatorTrend*0.34+central*0.26+
+                state.planeScore.coerceIn(0.0,1.0)*0.16+
+                lastMove.coerceIn(0.0,1.0)*0.24).coerceIn(0.0,1.0)
 
-            // Establish a short early-round baseline, then detect a sustained
-            // relative rise. This avoids fixed odds/time cut-offs and keeps the
-            // same rule usable for short, medium and long rounds.
-            if(indicatorFrames<=5){
-                indicatorBaseline.addLast(candidate)
-                indicatorBaselineScore=indicatorBaseline.average()
-            }
-            val baselineReady=indicatorFrames>5 && indicatorBaseline.isNotEmpty()
-            val aboveRoundBaseline=baselineReady &&
-                candidate>=max(0.18,indicatorBaselineScore*1.10) &&
-                candidate-indicatorBaselineScore>=0.015
-            indicatorPreScore=indicatorPreScore*0.55+candidate*0.45
+            val baselineValues=indicatorBaseline.toList().sorted()
+            val baselineMedian=if(baselineValues.isEmpty()) candidate
+                else baselineValues[baselineValues.size/2]
+            val deviations=baselineValues.map{abs(it-baselineMedian)}.sorted()
+            val baselineMad=if(deviations.isEmpty()) 0.0
+                else deviations[deviations.size/2]
 
-            val evidenceCount=(if(trendEvidence)1 else 0)+(if(visualEvidence)1 else 0)+
-                (if(planeEvidence)1 else 0)+(if(movementEvidence)1 else 0)
-            val pairedEvidence=(trendEvidence && (visualEvidence || movementEvidence || planeEvidence)) ||
-                (visualEvidence && movementEvidence) || (movementEvidence && planeEvidence)
-            // Position alone is not a pre-fly signal: the plane can reach the upper/right
-            // area early in a very long round. Require a meaningful surge above this
-            // round's own opening baseline plus corroborating movement/visual evidence.
-            val baselineRise = candidate - indicatorBaselineScore
-            val strongVisualSurge = indicatorTrend >= 0.64 &&
-                baselineRise >= 0.055 &&
-                candidate >= max(0.25, indicatorBaselineScore * 1.40)
-            val lateFlightRegion = planePresent &&
-                (state.planeX >= w * 0.78f || state.planeY <= h * 0.20f)
-            // Short rounds can end before the plane reaches the late-flight region;
-            // allow only a sharper, multi-signal surge in that case.
-            val strongShortRoundSignal = indicatorFrames >= 4 &&
-                indicatorTrend >= 0.78 &&
-                candidate >= max(0.34, indicatorBaselineScore + 0.10) &&
-                evidenceCount >= 3 && pairedEvidence
-            val preEvidence = strongVisualSurge &&
-                indicatorPreScore >= 0.25 &&
-                evidenceCount >= 2 && pairedEvidence &&
-                ((lateFlightRegion && (lastMove >= 0.075 || central >= 0.12)) ||
-                    strongShortRoundSignal)
+            // Look for a small but meaningful departure from this round's own
+            // normal pattern. Any channel can raise a warning; corroborating
+            // channels increase confidence. There is deliberately no fixed
+            // multiplier, plane-position, or frame-count gate.
+            val behaviourDelta=abs(candidate-baselineMedian)
+            val subtleChange=behaviourDelta>=max(0.008,baselineMad*1.35)
+            val recentChangeValues=indicatorChanges.toList().sorted()
+            val recentChangeMedian=if(recentChangeValues.isEmpty()) 0.0
+                else recentChangeValues[recentChangeValues.size/2]
+            val visualDelta=abs(change-recentChangeMedian)>=max(0.006,
+                recentChangeMedian*0.12)
+            val planeMovementChange=movementEvidence && lastMove>=0.025
+            val corroboratingSignals=(if(subtleChange)1 else 0)+
+                (if(visualDelta)1 else 0)+(if(planeMovementChange)1 else 0)+
+                (if(visualEvidence)1 else 0)
+
+            // Give the live round a brief opportunity to establish its own normal
+            // behaviour. This is elapsed time, not a required number of frames.
+            val baselineEstablished=indicatorRoundStartedAt>0L &&
+                nowMs-indicatorRoundStartedAt>=250L && baselineValues.isNotEmpty()
+            val preEvidence=baselineEstablished &&
+                (subtleChange || visualDelta || planeMovementChange) &&
+                corroboratingSignals>=1
+
             if(preEvidence){
                 indicatorRoundHadActivity=true
-                indicatorPreHold=(indicatorPreHold+1).coerceAtMost(7)
+                indicatorPreDetected=true
+                if(!indicatorWarningVibrated){
+                    indicatorWarningVibrated=true
+                    vibrateWarning()
+                }
+                publish("PRE-FLY-AWAY CHANGE DETECTED",true,
+                    "A change from this round's normal visual/flight behaviour was detected. Red signal and vibration activated.")
             }else{
-                indicatorPreHold=max(0,indicatorPreHold-1)
+                // Only learn from non-warning observations so an unusual event does
+                // not immediately become the new normal and disappear from detection.
+                indicatorBaseline.addLast(candidate)
+                while(indicatorBaseline.size>48) indicatorBaseline.removeFirst()
+                indicatorBaselineScore=baselineMedian
             }
-            // Require a sustained late-stage signal; don't flash red on one noisy frame.
-            if(indicatorPreHold>=3) indicatorPreDetected=true
 
-            // End screens can be missed by OCR. A sustained loss of live-game
-            // evidence ends this indicator cycle and guarantees a clean next round.
+            // The warning remains red for the rest of the live round. It is reset
+            // only when the round-ending state is recognised or live-round evidence ends.
             if(indicatorMisses>=18){
                 indicatorRoundActive=false
                 indicatorLiveHits=0
@@ -322,6 +336,8 @@ class ScreenMonitorService : Service() {
                 indicatorFrames=0
                 indicatorBaselineScore=0.0
                 indicatorRoundHadActivity=false
+                indicatorWarningVibrated=false
+                indicatorRoundStartedAt=0L
                 indicatorBaseline.clear()
                 indicatorChanges.clear()
                 publish("WAITING FOR NEXT ROUND",false,
@@ -503,6 +519,18 @@ class ScreenMonitorService : Service() {
         return total.toDouble()/max(1,n*255)
     }
 
+    private fun vibrateWarning(){
+        try{
+            val vibrator=getSystemService(VIBRATOR_SERVICE) as Vibrator
+            if(Build.VERSION.SDK_INT>=Build.VERSION_CODES.O){
+                vibrator.vibrate(VibrationEffect.createOneShot(220L,VibrationEffect.DEFAULT_AMPLITUDE))
+            }else{
+                @Suppress("DEPRECATION")
+                vibrator.vibrate(220L)
+            }
+        }catch(_:Throwable){}
+    }
+
     private fun publish(status:String,pre:Boolean,statement:String){
         if(status==lastPublishedStatus && pre==lastPublishedPre && statement==lastPublishedStatement) return
         lastPublishedStatus=status
@@ -525,7 +553,7 @@ class ScreenMonitorService : Service() {
             overlay?.text=buildOverlayText(status,pre)
             overlay?.textSize=overlayTextSize
             overlay?.setTextColor(0xFFFFFFFF.toInt())
-            overlay?.setBackgroundColor(when { pre -> 0xFFE53935.toInt(); indicatorRoundActive || recording -> 0xFF2E7D32.toInt(); else -> 0xE6202124.toInt() })
+            overlay?.setBackgroundColor(if(pre) 0xFFE53935.toInt() else 0xFF2E7D32.toInt())
         }
         sendBroadcast(Intent(ACTION_STATUS).putExtra(EXTRA_STATUS,status).putExtra(EXTRA_STATEMENT,statement).putExtra(EXTRA_RED,pre).putExtra(EXTRA_ROUNDS,store.all().size))
     }
@@ -588,6 +616,8 @@ class ScreenMonitorService : Service() {
         label.text="● WAITING FOR AVIATOR\nLIVE CAPTURE PREVIEW — waiting for first frame\nDrag to move · tap to hide/show preview · pinch to resize"
         label.textSize=overlayTextSize
         label.setTextColor(0xFFFFFFFF.toInt())
+        // Idle, waiting, and normal live monitoring all start green; only a detected pre-fly-away change turns red.
+        label.setBackgroundColor(0xFF2E7D32.toInt())
         label.setPadding(10,8,10,8)
         panel.addView(titleBar)
         panel.addView(image)

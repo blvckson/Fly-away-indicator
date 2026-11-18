@@ -16,7 +16,8 @@ data class LiveScreenState(
     val planeHeightPx: Float = Float.NaN,
     val planePixelCount: Int = 0,
     val planeAspectRatio: Float = Float.NaN,
-    val planeFillRatio: Float = 0f
+    val planeFillRatio: Float = 0f,
+    val planeMovementScore: Double = 0.0
 )
 
 /**
@@ -189,7 +190,7 @@ class LiveScreenDetector {
             live, planeScore, central, sceneScore,
             bestX, bestY, bestWidthPx, bestHeightPx, bestCount,
             if (bestCount > 0) bestAspect.toFloat() else Float.NaN,
-            bestFillRatio
+            bestFillRatio, movementScore
         )
     }
 

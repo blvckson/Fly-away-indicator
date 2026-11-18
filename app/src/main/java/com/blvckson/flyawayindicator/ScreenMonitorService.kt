@@ -258,6 +258,7 @@ class ScreenMonitorService : Service() {
             indicatorShortBaseline.clear()
             indicatorChanges.clear()
             indicatorTimedChanges.clear()
+            recentChanges.clear()
             detector.resetTracking()
             indicatorRoundStartedAtMs=0L
             indicatorLastHoldFrameMs=0L
@@ -286,7 +287,12 @@ class ScreenMonitorService : Service() {
                 indicatorRoundHadActivity=false
                 indicatorBaseline.clear()
                 indicatorShortBaseline.clear()
+                // Seed the rolling activity window with the frames captured just
+                // before the live-round confirmation, as Build 75 did. This lets
+                // the detector evaluate short rounds immediately after GREEN.
                 indicatorChanges.clear()
+                indicatorChanges.addAll(recentChanges)
+                while(indicatorChanges.size>24)indicatorChanges.removeFirst()
                 indicatorTimedChanges.clear()
                 indicatorRoundStartedAtMs=frameTimeMs
                 indicatorLastHoldFrameMs=0L
@@ -430,6 +436,7 @@ class ScreenMonitorService : Service() {
                 indicatorShortBaseline.clear()
                 indicatorChanges.clear()
                 indicatorTimedChanges.clear()
+                recentChanges.clear()
                 indicatorRoundStartedAtMs=0L
                 indicatorLastFrameAtMs=0L
                 detector.resetTracking()

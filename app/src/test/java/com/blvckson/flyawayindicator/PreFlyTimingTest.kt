@@ -7,6 +7,13 @@ import org.junit.Test
 
 class PreFlyTimingTest {
     @Test
+    fun trendCanBeMeasuredFromTwoCurrentRoundSamples() {
+        assertEquals(0.5, PreFlyTiming.trend(listOf(0.02)), 0.000001)
+        assertEquals(1.0, PreFlyTiming.trend(listOf(0.01, 0.04)), 0.000001)
+        assertTrue(PreFlyTiming.trend(listOf(0.04, 0.01)) < 0.5)
+    }
+
+    @Test
     fun medianBaselineIgnoresOneLargeOpeningSpike() {
         assertEquals(0.115, PreFlyTiming.medianBaseline(listOf(0.10, 0.11, 0.12, 0.99)), 0.000001)
     }

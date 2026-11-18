@@ -473,14 +473,8 @@ class ScreenMonitorService : Service() {
         }
     }
 
-    private fun changeTrend(history:ArrayDeque<Double> = recentChanges):Double{
-        val a=history.toList().takeLast(8)
-        if(a.size<2)return 0.5
-        val split=max(1,a.size/2)
-        val early=a.take(split).average()
-        val late=a.drop(split).average()
-        return ((late-early)/max(0.012,early+0.012)+0.5).coerceIn(0.0,1.0)
-    }
+    private fun changeTrend(history:ArrayDeque<Double> = recentChanges):Double =
+        PreFlyTiming.trend(history.toList())
 
     private fun centralChange(a:Bitmap?,b:Bitmap):Double{
         if(a==null)return 0.0

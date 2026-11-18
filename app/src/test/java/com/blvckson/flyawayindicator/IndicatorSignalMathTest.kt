@@ -18,6 +18,44 @@ class IndicatorSignalMathTest {
     }
 
     @Test
+    fun relativeGeometryChangeMeasuresWidthAndHeightChanges() {
+        val change = IndicatorSignalMath.relativeGeometryChange(
+            currentWidth = 0.03,
+            currentHeight = 0.06,
+            previousWidth = 0.02,
+            previousHeight = 0.04
+        )
+        assertEquals(0.5, change, 0.000001)
+    }
+
+    @Test
+    fun relativeGeometryChangeIsZeroWithoutValidPriorMeasurements() {
+        assertEquals(
+            0.0,
+            IndicatorSignalMath.relativeGeometryChange(0.03, 0.06, null, 0.04),
+            0.000001
+        )
+    }
+
+    @Test
+    fun relativeShapeChangeMeasuresAspectRatioChange() {
+        assertEquals(
+            0.25,
+            IndicatorSignalMath.relativeShapeChange(1.25, 1.0),
+            0.000001
+        )
+    }
+
+    @Test
+    fun relativeShapeChangeRejectsInvalidAspectRatios() {
+        assertEquals(
+            0.0,
+            IndicatorSignalMath.relativeShapeChange(Double.NaN, 1.0),
+            0.000001
+        )
+    }
+
+    @Test
     fun adjacentWindowTrendDetectsAnIncrease() {
         val samples = listOf(
             IndicatorSignalSample(500L, 0.10),

@@ -32,6 +32,7 @@ internal data class IndicatorTraceSample(
     val geometryChange: Double,
     val shapeChange: Double,
     val movementScore: Double,
+    val detectorMovementScore: Double,
     val trend800Ms: Double?,
     val trend250Ms: Double?,
     val candidateScore: Double,
@@ -59,7 +60,7 @@ internal class IndicatorTraceStore(private val context: Context) {
             "record_type,wall_time_ms,elapsed_ms,frame_delta_ms,global_change,central_change," +
             "plane_score,plane_x_norm,plane_y_norm,plane_width_norm,plane_height_norm," +
             "plane_pixel_count,plane_aspect_ratio,plane_fill_ratio,geometry_change,shape_change," +
-            "movement_score,trend_800ms,trend_250ms,candidate_score,baseline_score," +
+            "movement_score,detector_movement_score,trend_800ms,trend_250ms,candidate_score,baseline_score," +
             "pre_evidence,red,ocr_verified,visual_live,end_confirmed,end_reason"
     }
 
@@ -120,6 +121,7 @@ internal class IndicatorTraceStore(private val context: Context) {
                     number(sample.geometryChange),
                     number(sample.shapeChange),
                     number(sample.movementScore),
+                    number(sample.detectorMovementScore),
                     optional(sample.trend800Ms),
                     optional(sample.trend250Ms),
                     number(sample.candidateScore),

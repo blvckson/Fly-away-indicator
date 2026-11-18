@@ -104,6 +104,8 @@ class ScreenMonitorService : Service() {
     private var indicatorBaselineScore=0.0
     private var indicatorLastFrameAtMs=0L
     private var indicatorRoundHadActivity=false
+    private var lastIndicatorSignalReport="Signal indices /100 — awaiting first live-round sample."
+    private var latchedRedSignalReport=""
 
     override fun onCreate(){
         super.onCreate()
@@ -177,8 +179,6 @@ class ScreenMonitorService : Service() {
         val change=lastFrame?.let{frameDifference(it,frame)} ?: 0.0
         recentChanges.addLast(change)
         while(recentChanges.size>24)recentChanges.removeFirst()
-        indicatorChanges.addLast(change)
-        while(indicatorChanges.size>36)indicatorChanges.removeFirst()
 
         if(!state.planeX.isNaN() && !state.planeY.isNaN()){
             missing=0
@@ -216,6 +216,8 @@ class ScreenMonitorService : Service() {
             indicatorLastFrameAtMs=0L
             indicatorBaselineScore=0.0
             indicatorRoundHadActivity=false
+            lastIndicatorSignalReport="Signal indices /100 — collecting opening samples."
+            latchedRedSignalReport=""
             indicatorBaseline.clear()
             indicatorChanges.clear()
             recentChanges.clear()
@@ -234,6 +236,8 @@ class ScreenMonitorService : Service() {
             indicatorLastFrameAtMs=0L
             indicatorBaselineScore=0.0
             indicatorRoundHadActivity=false
+            lastIndicatorSignalReport="Signal indices /100 — waiting for the next round."
+            latchedRedSignalReport=""
             indicatorBaseline.clear()
             indicatorChanges.clear()
             recentChanges.clear()
@@ -248,6 +252,10 @@ class ScreenMonitorService : Service() {
 
         if(indicatorPhaseMachine.phase==IndicatorPhase.GREEN){
             indicatorFrames++
+            // Keep trend samples strictly within this confirmed round. The opening
+            // frame is retained instead of being discarded by the BLACK -> GREEN reset.
+            indicatorChanges.addLast(change)
+            while(indicatorChanges.size>10)indicatorChanges.removeFirst()
 
             // Use monotonic capture cadence, not wall-clock time. This keeps the
             // confirmation responsive on slower devices without assuming a fixed FPS.
@@ -272,11 +280,14 @@ class ScreenMonitorService : Service() {
             )
             val candidate=PreFlyTiming.candidate(signals)
 
-            if(indicatorFrames<=4){
+            // Two opening observations allow very short rounds to be evaluated
+            // earlier. A two-sample baseline uses a stricter, three-signal path.
+            if(indicatorBaseline.size<2){
                 indicatorBaseline.addLast(candidate)
                 indicatorBaselineScore=PreFlyTiming.medianBaseline(indicatorBaseline.toList())
             }
-            val baselineReady=indicatorBaseline.size>=4
+            val baselineSampleCount=indicatorBaseline.size
+            val baselineReady=indicatorFrames>=3 && baselineSampleCount>=2
 
             // Time-aware smoothing gives slower frames more influence without
             // imposing a separate fixed-duration confirmation window.
@@ -285,22 +296,39 @@ class ScreenMonitorService : Service() {
             indicatorPreScore=if(indicatorFrames==1) candidate
                 else indicatorPreScore*(1.0-smoothingAlpha)+candidate*smoothingAlpha
 
+            val scores=PreFlyTiming.signalScores(signals)
+            lastIndicatorSignalReport=scores.diagnosticLine()
+            val independentSignals=PreFlyTiming.evidenceCount(signals)
             val preEvidence=baselineReady && PreFlyTiming.isEvidence(
                 signals=signals,
                 candidate=candidate,
                 smoothedScore=indicatorPreScore,
-                baselineScore=indicatorBaselineScore
+                baselineScore=indicatorBaselineScore,
+                baselineSampleCount=baselineSampleCount
             )
             indicatorPreHold=PreFlyTiming.updatedHold(indicatorPreHold,preEvidence)
 
-            // Confirm 3 corroborated samples at normal capture speed, or 2 when
-            // frames arrive slowly. A weak sample decays the hold by one.
-            val requiredConfirmations=PreFlyTiming.requiredConfirmations(frameDeltaMs)
+            // Update a rolling normal-behaviour baseline during quiet observations.
+            // Freeze it whenever the score rises or multiple channels hint at change.
+            if(baselineReady && !preEvidence && PreFlyTiming.shouldLearnBaseline(
+                candidate=candidate,
+                baselineScore=indicatorBaselineScore,
+                signals=signals
+            )){
+                indicatorBaseline.addLast(candidate)
+                while(indicatorBaseline.size>12)indicatorBaseline.removeFirst()
+                indicatorBaselineScore=PreFlyTiming.medianBaseline(indicatorBaseline.toList())
+            }
+
+            // Strong three-channel evidence can confirm in two frames even at normal
+            // capture cadence; otherwise use three frames, or two on slow capture.
+            val requiredConfirmations=PreFlyTiming.requiredConfirmations(frameDeltaMs,independentSignals)
             if(indicatorPreHold>=requiredConfirmations &&
                 indicatorPhaseMachine.phase==IndicatorPhase.GREEN){
                 indicatorRoundHadActivity=true
                 indicatorPhaseMachine.markPreFlyAway()
                 indicatorPreDetected=indicatorPhaseMachine.phase==IndicatorPhase.RED
+                latchedRedSignalReport=lastIndicatorSignalReport
                 // Vibrate exactly once, on the GREEN -> RED phase transition.
                 vibrateForPreFlyAway()
             }
@@ -354,7 +382,7 @@ class ScreenMonitorService : Service() {
             IndicatorPhase.GREEN -> publish("ROUND VISUAL MONITORING — GREEN",false,
                 "Aviator live round confirmed. Tracking visual behaviour for the pre-fly-away change.")
             IndicatorPhase.RED -> publish("PRE-FLY-AWAY DETECTED",true,
-                "Pre-fly-away visual/behavioural transition detected. Red indicator ON.")
+                "Pre-fly-away visual/behavioural transition detected. Red indicator ON. ${latchedRedSignalReport.ifBlank { lastIndicatorSignalReport }}")
         }
 
         lastFrame?.recycle()
@@ -440,11 +468,11 @@ class ScreenMonitorService : Service() {
     }
 
     private fun changeTrend(history:ArrayDeque<Double> = recentChanges):Double{
-        val a=history.toList().takeLast(10)
-        if(a.size<4)return 0.5
-        val half=max(2,a.size/2)
-        val early=a.take(half).average()
-        val late=a.takeLast(half).average()
+        val a=history.toList().takeLast(8)
+        if(a.size<2)return 0.5
+        val split=max(1,a.size/2)
+        val early=a.take(split).average()
+        val late=a.drop(split).average()
         return ((late-early)/max(0.012,early+0.012)+0.5).coerceIn(0.0,1.0)
     }
 

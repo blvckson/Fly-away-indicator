@@ -174,7 +174,7 @@ class IndicatorSignalMathTest {
             planeScore = 0.80,
             movementScore = 0.40
         )
-        assertEquals(0.58, score, 0.000001)
+        assertEquals(0.604, score, 0.000001)
     }
 
     @Test

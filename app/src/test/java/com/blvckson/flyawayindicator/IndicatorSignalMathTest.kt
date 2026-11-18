@@ -148,75 +148,47 @@ class IndicatorSignalMathTest {
     }
 
     @Test
-    fun normalPreFlySurgeTriggersWithLowerTrendAndOneIndependentCue() {
-        assertTrue(
-            IndicatorSignalMath.shouldTriggerPreFlySurge(
-                baselineReady = true,
-                shortBaselineReady = false,
-                standardTrend = 0.60,
-                shortTrend = null,
-                candidateScore = 0.25,
-                baselineScore = 0.22,
-                centralChange = 0.07,
-                movementScore = 0.01,
-                geometryChange = 0.0,
-                shapeChange = 0.0
-            )
+    fun relativeActivityTrendDetectsLateIncreaseWithoutTimeWindowRequirements() {
+        val trend = IndicatorSignalMath.relativeActivityTrend(
+            listOf(0.02, 0.02, 0.02, 0.02, 0.10, 0.11, 0.12, 0.12)
+        )
+        assertTrue(trend > 0.90)
+    }
+
+    @Test
+    fun relativeActivityTrendIsNeutralForStableRoundActivity() {
+        assertEquals(
+            0.5,
+            IndicatorSignalMath.relativeActivityTrend(
+                listOf(0.04, 0.04, 0.04, 0.04, 0.04, 0.04)
+            ),
+            0.000001
         )
     }
 
     @Test
-    fun normalPreFlySurgeDoesNotTriggerWithoutIndependentVisualChange() {
-        assertFalse(
-            IndicatorSignalMath.shouldTriggerPreFlySurge(
-                baselineReady = true,
-                shortBaselineReady = false,
-                standardTrend = 0.80,
-                shortTrend = null,
-                candidateScore = 0.30,
-                baselineScore = 0.20,
-                centralChange = 0.02,
-                movementScore = 0.01,
-                geometryChange = 0.01,
-                shapeChange = 0.02
-            )
+    fun build75CandidateUsesThePreviouslySuccessfulSignalWeights() {
+        val score = IndicatorSignalMath.build75Candidate(
+            indicatorTrend = 0.70,
+            centralChange = 0.50,
+            planeScore = 0.80,
+            movementScore = 0.40
         )
+        assertEquals(0.58, score, 0.000001)
     }
 
     @Test
-    fun shortRoundPreFlySurgeCanUseGeometryEvidence() {
-        assertTrue(
-            IndicatorSignalMath.shouldTriggerPreFlySurge(
-                baselineReady = false,
-                shortBaselineReady = true,
-                standardTrend = null,
-                shortTrend = 0.72,
-                candidateScore = 0.27,
-                baselineScore = 0.20,
-                centralChange = 0.02,
-                movementScore = 0.01,
-                geometryChange = 0.05,
-                shapeChange = 0.01
-            )
-        )
+    fun build75HoldConfirmsAfterThreeHighScoreFrames() {
+        var hold = 0
+        repeat(3) {
+            hold = IndicatorSignalMath.updateBuild75Hold(hold, 0.63)
+        }
+        assertEquals(3, hold)
     }
 
     @Test
-    fun preFlySurgeDoesNotTriggerBeforeEitherBaselineIsReady() {
-        assertFalse(
-            IndicatorSignalMath.shouldTriggerPreFlySurge(
-                baselineReady = false,
-                shortBaselineReady = false,
-                standardTrend = 0.90,
-                shortTrend = 0.90,
-                candidateScore = 0.40,
-                baselineScore = 0.10,
-                centralChange = 0.20,
-                movementScore = 0.10,
-                geometryChange = 0.10,
-                shapeChange = 0.10
-            )
-        )
+    fun build75HoldDecaysByOneInsteadOfResettingOnSingleWeakFrame() {
+        assertEquals(2, IndicatorSignalMath.updateBuild75Hold(3, 0.61))
     }
 
     @Test

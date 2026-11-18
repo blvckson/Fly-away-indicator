@@ -114,7 +114,7 @@ class ScreenMonitorService : Service() {
     private var indicatorBaselineScore=0.0
     private var indicatorShortBaselineScore=0.0
     private var indicatorRoundStartedAtMs=0L
-    private var indicatorPreSinceMs=0L
+    private var indicatorLastHoldFrameMs=0L
     private var indicatorLastFrameAtMs=0L
     private var indicatorEndCooldownUntil=0L
     private var indicatorEndLatched=false
@@ -260,7 +260,7 @@ class ScreenMonitorService : Service() {
             indicatorTimedChanges.clear()
             detector.resetTracking()
             indicatorRoundStartedAtMs=0L
-            indicatorPreSinceMs=0L
+            indicatorLastHoldFrameMs=0L
             indicatorLastFrameAtMs=0L
             // Latch the end marker once. The OCR verifier can hold an end result
             // briefly, so extending a long cooldown on every frame can skip the
@@ -289,7 +289,7 @@ class ScreenMonitorService : Service() {
                 indicatorChanges.clear()
                 indicatorTimedChanges.clear()
                 indicatorRoundStartedAtMs=frameTimeMs
-                indicatorPreSinceMs=0L
+                indicatorLastHoldFrameMs=0L
                 indicatorLastFrameAtMs=0L
                 indicatorLastLiveAtMs=frameTimeMs
                 lastPlaneWidthNorm=Double.NaN
@@ -316,7 +316,7 @@ class ScreenMonitorService : Service() {
             // Keep samples strictly within this round. The timestamps use Android's
             // monotonic clock, so trend windows do not drift with wall-clock changes.
             indicatorChanges.addLast(change)
-            while(indicatorChanges.size>36)indicatorChanges.removeFirst()
+            while(indicatorChanges.size>24)indicatorChanges.removeFirst()
             indicatorTimedChanges.addLast(IndicatorSignalSample(frameTimeMs,change))
             while(indicatorTimedChanges.isNotEmpty() &&
                 frameTimeMs-indicatorTimedChanges.first().timeMs>2600L) {
@@ -326,18 +326,19 @@ class ScreenMonitorService : Service() {
             val samples=indicatorTimedChanges.toList()
             val standardTrend=IndicatorSignalMath.windowTrend(samples,frameTimeMs,800L,3)
             val shortTrend=IndicatorSignalMath.windowTrend(samples,frameTimeMs,250L,2)
-            val indicatorTrend=standardTrend ?: shortTrend ?: 0.5
 
-            // Combine motion, scale and shape signals instead of relying on
-            // the aircraft centroid alone. The separate components are also logged
-            // in the per-round trace so real-device behaviour can be calibrated.
-            val movementSignal=max(lastMove,state.planeMovementScore).coerceIn(0.0,1.0)
-            val geometrySignal=(geometryChange/0.12).coerceIn(0.0,1.0)
-            val shapeSignal=(shapeChange/0.15).coerceIn(0.0,1.0)
-            val candidate=(indicatorTrend*0.32+central*0.22+
-                state.planeScore.coerceIn(0.0,1.0)*0.15+
-                movementSignal*0.15+geometrySignal*0.08+shapeSignal*0.08)
-                .coerceIn(0.0,1.0)
+            // Restore the signal blend from the user's previously successful
+            // Build 75 behaviour. This is sample-count based: fixed 250/800 ms
+            // windows can remain unavailable on a slower Android capture loop.
+            // indicatorChanges is cleared at round start, so prior-round frames
+            // never influence this round's score.
+            val indicatorTrend=IndicatorSignalMath.relativeActivityTrend(indicatorChanges.toList())
+            val candidate=IndicatorSignalMath.build75Candidate(
+                indicatorTrend=indicatorTrend,
+                centralChange=central,
+                planeScore=state.planeScore,
+                movementScore=lastMove
+            )
 
             val roundAgeMs=(frameTimeMs-indicatorRoundStartedAtMs).coerceAtLeast(0L)
             // The first three samples are kept separately for a conservative short-round
@@ -360,40 +361,25 @@ class ScreenMonitorService : Service() {
                 else (frameTimeMs-indicatorLastFrameAtMs).coerceIn(1L,500L)
             indicatorLastFrameAtMs=frameTimeMs
             val smoothing=(frameDeltaMs/450.0).coerceIn(0.03,0.65)
-            indicatorPreScore=indicatorPreScore*(1.0-smoothing)+candidate*smoothing
+            indicatorPreScore=IndicatorSignalMath.smoothBuild75Score(
+                indicatorPreScore,candidate
+            )
 
-            // Require a rising per-round signal plus at least one independent visual
-            // change. Aircraft presence by itself is not counted as corroboration.
-            // Geometry/shape cues allow a size or silhouette shift to contribute even
-            // when the plane's centre barely moves.
-            val strongVisualSurge=IndicatorSignalMath.shouldTriggerPreFlySurge(
-                baselineReady=baselineReady,
-                shortBaselineReady=false,
-                standardTrend=standardTrend,
-                shortTrend=null,
-                candidateScore=candidate,
-                baselineScore=indicatorBaselineScore,
-                centralChange=central,
-                movementScore=movementSignal,
-                geometryChange=geometryChange,
-                shapeChange=shapeChange
+            // Keep the Build 75 leaky hold: intermittent frame misses reduce
+            // confidence by one rather than resetting it. A long capture pause
+            // starts a fresh sequence, but contiguous 220 ms confirmation is not
+            // imposed because that can be impossible at low capture frame rates.
+            if(indicatorLastHoldFrameMs>0L &&
+                frameTimeMs-indicatorLastHoldFrameMs>1500L) {
+                indicatorPreHold=0
+            }
+            indicatorLastHoldFrameMs=frameTimeMs
+            indicatorPreHold=IndicatorSignalMath.updateBuild75Hold(
+                indicatorPreHold,indicatorPreScore
             )
-            // The short-round path uses the same corroboration rule with its own
-            // smaller baseline and faster trend window.
-            val strongShortRoundSignal=IndicatorSignalMath.shouldTriggerPreFlySurge(
-                baselineReady=false,
-                shortBaselineReady=shortBaselineReady,
-                standardTrend=null,
-                shortTrend=shortTrend,
-                candidateScore=candidate,
-                baselineScore=indicatorShortBaselineScore,
-                centralChange=central,
-                movementScore=movementSignal,
-                geometryChange=geometryChange,
-                shapeChange=shapeChange
-            )
-            val preEvidence=visualLive && indicatorPreScore>=0.18 &&
-                (strongVisualSurge || strongShortRoundSignal)
+            val preEvidence=indicatorPreScore>=0.62
+            if(preEvidence) indicatorRoundHadActivity=true
+            if(indicatorPreHold>=3) indicatorPreDetected=true
 
             if(indicatorTraceActive) {
                 val traceSample=IndicatorTraceSample(
@@ -432,7 +418,7 @@ class ScreenMonitorService : Service() {
                 if(indicatorPreSinceMs==0L) indicatorPreSinceMs=frameTimeMs
                 indicatorPreHold=(indicatorPreHold+1).coerceAtMost(7)
             }else{
-                indicatorPreSinceMs=0L
+                indicatorLastHoldFrameMs=0L
                 indicatorPreHold=0
             }
 
@@ -448,7 +434,7 @@ class ScreenMonitorService : Service() {
                 indicatorLastLiveAtMs=0L
                 indicatorPreScore=0.0
                 indicatorPreHold=0
-                indicatorPreSinceMs=0L
+                indicatorLastHoldFrameMs=0L
                 indicatorPreDetected=false
                 indicatorFrames=0
                 indicatorBaselineScore=0.0

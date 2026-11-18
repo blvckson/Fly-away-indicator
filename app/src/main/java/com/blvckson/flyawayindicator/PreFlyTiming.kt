@@ -61,7 +61,7 @@ internal object PreFlyTiming {
     fun updatedHold(current: Int, evidence: Boolean): Int =
         if(evidence) min(8,current+1) else max(0,current-1)
 
-    /** Slow capture gets two corroborated samples; normal capture gets three. */
+    /** Slower capture gets two corroborated samples; faster capture gets three. */
     fun requiredConfirmations(frameDeltaMs: Long): Int =
-        if(frameDeltaMs>=180L) 2 else 3
+        if(frameDeltaMs>=90L) 2 else 3
 }

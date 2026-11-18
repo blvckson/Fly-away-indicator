@@ -210,14 +210,16 @@ class ScreenMonitorService : Service() {
         val planeWidthNorm=if(planePresent && state.planeWidthPx.isFinite()) state.planeWidthPx.toDouble()/w else null
         val planeHeightNorm=if(planePresent && state.planeHeightPx.isFinite()) state.planeHeightPx.toDouble()/h else null
         val planeAspect=if(planePresent && state.planeAspectRatio.isFinite()) state.planeAspectRatio.toDouble() else null
-        val geometryChange=if(planeWidthNorm!=null && planeHeightNorm!=null &&
-            lastPlaneWidthNorm.isFinite() && lastPlaneHeightNorm.isFinite()) {
-            ((abs(planeWidthNorm-lastPlaneWidthNorm)/max(0.002,lastPlaneWidthNorm))+
-                (abs(planeHeightNorm-lastPlaneHeightNorm)/max(0.002,lastPlaneHeightNorm)))/2.0
-        } else 0.0
-        val shapeChange=if(planeAspect!=null && lastPlaneAspect.isFinite())
-            (abs(planeAspect-lastPlaneAspect)/max(0.10,lastPlaneAspect)).coerceIn(0.0,1.0)
-        else 0.0
+        val geometryChange=IndicatorSignalMath.relativeGeometryChange(
+            planeWidthNorm ?: Double.NaN,
+            planeHeightNorm ?: Double.NaN,
+            lastPlaneWidthNorm.takeIf { it.isFinite() },
+            lastPlaneHeightNorm.takeIf { it.isFinite() }
+        )
+        val shapeChange=IndicatorSignalMath.relativeShapeChange(
+            planeAspect ?: Double.NaN,
+            lastPlaneAspect.takeIf { it.isFinite() }
+        )
         if(planeWidthNorm!=null && planeHeightNorm!=null) {
             lastPlaneWidthNorm=planeWidthNorm
             lastPlaneHeightNorm=planeHeightNorm
@@ -267,7 +269,7 @@ class ScreenMonitorService : Service() {
                 indicatorEndLatched=true
             }
             publish("WAITING FOR NEXT ROUND",false,
-                "Round-end marker detected. Indicator reset; waiting for fresh live-round evidence.")
+                "Round-end marker detected. Indicator reset; waiting for fresh live-round evidence. Numeric trace folder: ${indicatorTraceStore.directoryPath()}")
         }else if(visualLive && (indicatorRoundActive || textVerifier.isVerified())){
             indicatorLiveHits=(indicatorLiveHits+1).coerceAtMost(5)
             indicatorLastLiveAtMs=frameTimeMs
@@ -450,7 +452,7 @@ class ScreenMonitorService : Service() {
                 indicatorRoundStartedAtMs=0L
                 indicatorLastFrameAtMs=0L
                 publish("WAITING FOR NEXT ROUND",false,
-                    "Live-round evidence ended for 3 seconds. Indicator reset and ready for the next round.")
+                    "Live-round evidence ended for 3 seconds. Indicator reset and ready for the next round. Numeric trace folder: ${indicatorTraceStore.directoryPath()}")
             }
         }
 

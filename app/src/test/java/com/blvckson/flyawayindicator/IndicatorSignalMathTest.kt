@@ -148,6 +148,78 @@ class IndicatorSignalMathTest {
     }
 
     @Test
+    fun normalPreFlySurgeTriggersWithLowerTrendAndOneIndependentCue() {
+        assertTrue(
+            IndicatorSignalMath.shouldTriggerPreFlySurge(
+                baselineReady = true,
+                shortBaselineReady = false,
+                standardTrend = 0.60,
+                shortTrend = null,
+                candidateScore = 0.25,
+                baselineScore = 0.22,
+                centralChange = 0.07,
+                movementScore = 0.01,
+                geometryChange = 0.0,
+                shapeChange = 0.0
+            )
+        )
+    }
+
+    @Test
+    fun normalPreFlySurgeDoesNotTriggerWithoutIndependentVisualChange() {
+        assertFalse(
+            IndicatorSignalMath.shouldTriggerPreFlySurge(
+                baselineReady = true,
+                shortBaselineReady = false,
+                standardTrend = 0.80,
+                shortTrend = null,
+                candidateScore = 0.30,
+                baselineScore = 0.20,
+                centralChange = 0.02,
+                movementScore = 0.01,
+                geometryChange = 0.01,
+                shapeChange = 0.02
+            )
+        )
+    }
+
+    @Test
+    fun shortRoundPreFlySurgeCanUseGeometryEvidence() {
+        assertTrue(
+            IndicatorSignalMath.shouldTriggerPreFlySurge(
+                baselineReady = false,
+                shortBaselineReady = true,
+                standardTrend = null,
+                shortTrend = 0.72,
+                candidateScore = 0.27,
+                baselineScore = 0.20,
+                centralChange = 0.02,
+                movementScore = 0.01,
+                geometryChange = 0.05,
+                shapeChange = 0.01
+            )
+        )
+    }
+
+    @Test
+    fun preFlySurgeDoesNotTriggerBeforeEitherBaselineIsReady() {
+        assertFalse(
+            IndicatorSignalMath.shouldTriggerPreFlySurge(
+                baselineReady = false,
+                shortBaselineReady = false,
+                standardTrend = 0.90,
+                shortTrend = 0.90,
+                candidateScore = 0.40,
+                baselineScore = 0.10,
+                centralChange = 0.20,
+                movementScore = 0.10,
+                geometryChange = 0.10,
+                shapeChange = 0.10
+            )
+        )
+    }
+
+    @Test
     fun roundResetUsesElapsedTimeNotFrameCount() {
         assertFalse(IndicatorSignalMath.shouldResetRound(3999L, 1000L, 3000L))
         assertTrue(IndicatorSignalMath.shouldResetRound(4000L, 1000L, 3000L))

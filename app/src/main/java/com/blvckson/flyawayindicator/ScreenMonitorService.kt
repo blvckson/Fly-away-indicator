@@ -38,6 +38,7 @@ class ScreenMonitorService : Service() {
     private var recorder:RoundVideoRecorder?=null
     private val detector=LiveScreenDetector()
     private val textVerifier=AviatorTextVerifier()
+    private val indicatorPhaseMachine=IndicatorPhaseMachine()
     private val videoAnalyser=VideoRoundAnalyser()
     private lateinit var analysisThread:HandlerThread
     private lateinit var analysisHandler:Handler
@@ -96,16 +97,12 @@ class ScreenMonitorService : Service() {
     private val indicatorChanges=ArrayDeque<Double>()
     private val indicatorBaseline=ArrayDeque<Double>()
     private var indicatorRoundActive=false
-    private var indicatorLiveHits=0
-    private var indicatorMisses=0
     private var indicatorPreScore=0.0
     private var indicatorPreHold=0
     private var indicatorPreDetected=false
     private var indicatorFrames=0
     private var indicatorBaselineScore=0.0
     private var indicatorLastFrameAtMs=0L
-    private var indicatorEndCooldownUntil=0L
-    private var indicatorEndLatched=false
     private var indicatorRoundHadActivity=false
 
     override fun onCreate(){
@@ -200,17 +197,18 @@ class ScreenMonitorService : Service() {
             state.planeScore >= 0.08 &&
             state.multiplierVisualScore >= 0.07
 
-        // Start/end the colour detector independently from video recording.
-        // Do not let low-threshold movement alone trigger the pre-fly-away warning.
+        // The aircraft/game detector already confirms consecutive live frames.
+        // Use one phase controller so no second counter or OCR cooldown delays
+        // BLACK -> GREEN, and so stale end-text cannot block the following round.
         val endConfirmed=textVerifier.isEndConfirmed()
-        val nowMs=System.currentTimeMillis()
-        if(!endConfirmed) indicatorEndLatched=false
-        if(endConfirmed){
-            // End markers can remain visible for several captured frames. Clear the
-            // warning once, then block re-arming until the end screen has passed.
-            indicatorRoundActive=false
-            indicatorLiveHits=0
-            indicatorMisses=0
+        val previousIndicatorPhase=indicatorPhaseMachine.phase
+        indicatorPhaseMachine.observeLive(visualLive,endConfirmed)
+        val currentIndicatorPhase=indicatorPhaseMachine.phase
+
+        if(previousIndicatorPhase==IndicatorPhase.BLACK &&
+            currentIndicatorPhase==IndicatorPhase.GREEN){
+            // Start a fresh per-round baseline immediately when the verified live
+            // screen first appears. The current frame becomes opening sample one.
             indicatorPreScore=0.0
             indicatorPreHold=0
             indicatorPreDetected=false
@@ -220,41 +218,35 @@ class ScreenMonitorService : Service() {
             indicatorRoundHadActivity=false
             indicatorBaseline.clear()
             indicatorChanges.clear()
-            // Latch the end marker once. The OCR verifier can hold an end result
-            // briefly, so extending a long cooldown on every frame can skip the
-            // next short round entirely.
-            if(!indicatorEndLatched){
-                indicatorEndCooldownUntil=nowMs+350L
-                indicatorEndLatched=true
-            }
-            publish("WAITING FOR NEXT ROUND",false,
-                "Round-end marker detected. Indicator reset; waiting for fresh live-round evidence.")
-        }else if(visualLive){
-            indicatorLiveHits=(indicatorLiveHits+1).coerceAtMost(5)
-            indicatorMisses=0
-            if(!indicatorRoundActive && nowMs>=indicatorEndCooldownUntil && indicatorLiveHits>=2){
-                // Every round starts with a fresh baseline and a green indicator.
-                indicatorRoundActive=true
-                indicatorPreScore=0.0
-                indicatorPreHold=0
-                indicatorPreDetected=false
-                indicatorFrames=0
-                indicatorLastFrameAtMs=0L
-                indicatorBaselineScore=0.0
-                indicatorRoundHadActivity=false
-                indicatorBaseline.clear()
-                indicatorChanges.clear()
-                recentChanges.clear()
-                lastMove=0.0
-                lastPlaneX=Float.NaN
-                lastPlaneY=Float.NaN
-            }
-        }else{
-            indicatorLiveHits=0
-            if(indicatorRoundActive) indicatorMisses=(indicatorMisses+1).coerceAtMost(24)
+            recentChanges.clear()
+            lastMove=0.0
+            lastPlaneX=Float.NaN
+            lastPlaneY=Float.NaN
+        }else if(previousIndicatorPhase!=IndicatorPhase.BLACK &&
+            currentIndicatorPhase==IndicatorPhase.BLACK){
+            // Explicit OCR end markers reset immediately. If OCR misses the result,
+            // three consecutive non-live frames reset the phase instead of leaving
+            // the overlay red/green for the old 18-frame timeout.
+            indicatorPreScore=0.0
+            indicatorPreHold=0
+            indicatorPreDetected=false
+            indicatorFrames=0
+            indicatorLastFrameAtMs=0L
+            indicatorBaselineScore=0.0
+            indicatorRoundHadActivity=false
+            indicatorBaseline.clear()
+            indicatorChanges.clear()
+            recentChanges.clear()
+            lastMove=0.0
+            lastPlaneX=Float.NaN
+            lastPlaneY=Float.NaN
+            detector.resetTracking()
         }
 
-        if(indicatorRoundActive){
+        indicatorRoundActive=currentIndicatorPhase!=IndicatorPhase.BLACK
+        indicatorPreDetected=currentIndicatorPhase==IndicatorPhase.RED
+
+        if(indicatorPhaseMachine.phase==IndicatorPhase.GREEN){
             indicatorFrames++
 
             // Use monotonic capture cadence, not wall-clock time. This keeps the
@@ -290,7 +282,8 @@ class ScreenMonitorService : Service() {
             // imposing a separate fixed-duration confirmation window.
             val smoothingAlpha=(1.0-kotlin.math.exp(-frameDeltaMs.toDouble()/120.0))
                 .coerceIn(0.22,0.68)
-            indicatorPreScore=indicatorPreScore*(1.0-smoothingAlpha)+candidate*smoothingAlpha
+            indicatorPreScore=if(indicatorFrames==1) candidate
+                else indicatorPreScore*(1.0-smoothingAlpha)+candidate*smoothingAlpha
 
             val preEvidence=baselineReady && PreFlyTiming.isEvidence(
                 signals=signals,
@@ -303,28 +296,13 @@ class ScreenMonitorService : Service() {
             // Confirm 3 corroborated samples at normal capture speed, or 2 when
             // frames arrive slowly. A weak sample decays the hold by one.
             val requiredConfirmations=PreFlyTiming.requiredConfirmations(frameDeltaMs)
-            if(indicatorPreHold>=requiredConfirmations){
+            if(indicatorPreHold>=requiredConfirmations &&
+                indicatorPhaseMachine.phase==IndicatorPhase.GREEN){
                 indicatorRoundHadActivity=true
-                indicatorPreDetected=true
-            }
-
-            // End screens can be missed by OCR. A sustained loss of live-game
-            // evidence ends this indicator cycle and guarantees a clean next round.
-            if(indicatorMisses>=18){
-                indicatorRoundActive=false
-                indicatorLiveHits=0
-                indicatorMisses=0
-                indicatorPreScore=0.0
-                indicatorPreHold=0
-                indicatorPreDetected=false
-                indicatorFrames=0
-                indicatorLastFrameAtMs=0L
-                indicatorBaselineScore=0.0
-                indicatorRoundHadActivity=false
-                indicatorBaseline.clear()
-                indicatorChanges.clear()
-                publish("WAITING FOR NEXT ROUND",false,
-                    "Live-round evidence ended. Indicator reset and ready for the next round.")
+                indicatorPhaseMachine.markPreFlyAway()
+                indicatorPreDetected=indicatorPhaseMachine.phase==IndicatorPhase.RED
+                // Vibrate exactly once, on the GREEN -> RED phase transition.
+                vibrateForPreFlyAway()
             }
         }
 
@@ -359,11 +337,6 @@ class ScreenMonitorService : Service() {
                 }
             }
             if(endingMultiplierHits>=3) stableEndingFrames++ else stableEndingFrames=0
-            if(indicatorPreDetected){
-                publish("PRE-FLY-AWAY DETECTED",true,"Pre-fly-away visual/behavioural transition detected. Red indicator ON.")
-            }else{
-                publish("RECORDING ROUND $round",false,"Whole Aviator live screen is being recorded; visual and plane behaviour are being tracked.")
-            }
             roundFrames++
             val now=System.currentTimeMillis()
             val redMultiplierFrozen = endingMultiplierHits >= 3 &&
@@ -375,14 +348,13 @@ class ScreenMonitorService : Service() {
             if(roundFrames >= 20 && (redMultiplierFrozen || explicitEnd || sustainedPlaneDisappearance)) finishRound()
         }
 
-        if(!recording && indicatorRoundActive){
-            if(indicatorPreDetected){
-                publish("PRE-FLY-AWAY DETECTED",true,
-                    "Pre-fly-away visual/behavioural transition detected. Red indicator ON.")
-            }else{
-                publish("ROUND VISUAL MONITORING — GREEN",false,
-                    "Tracking visual behaviour independently of round recording/saving.")
-            }
+        when(indicatorPhaseMachine.phase){
+            IndicatorPhase.BLACK -> publish("WAITING FOR AVIATOR",false,
+                "Indicator is black. Waiting for verified live-round evidence.")
+            IndicatorPhase.GREEN -> publish("ROUND VISUAL MONITORING — GREEN",false,
+                "Aviator live round confirmed. Tracking visual behaviour for the pre-fly-away change.")
+            IndicatorPhase.RED -> publish("PRE-FLY-AWAY DETECTED",true,
+                "Pre-fly-away visual/behavioural transition detected. Red indicator ON.")
         }
 
         lastFrame?.recycle()
@@ -505,11 +477,9 @@ class ScreenMonitorService : Service() {
 
     private fun publish(status:String,pre:Boolean,statement:String){
         if(status==lastPublishedStatus && pre==lastPublishedPre && statement==lastPublishedStatement) return
-        val enteredRed=pre && !lastPublishedPre
         lastPublishedStatus=status
         lastPublishedPre=pre
         lastPublishedStatement=statement
-        if(enteredRed) vibrateForPreFlyAway()
         if(status!=lastLoggedStatus){
             val stamp=SimpleDateFormat("HH:mm:ss",Locale.US).format(Date())
             overlayEvents.addLast("$stamp  $status")
@@ -527,7 +497,11 @@ class ScreenMonitorService : Service() {
             overlay?.text=buildOverlayText(status,pre)
             overlay?.textSize=overlayTextSize
             overlay?.setTextColor(0xFFFFFFFF.toInt())
-            overlay?.setBackgroundColor(when { pre -> 0xFFE53935.toInt(); indicatorRoundActive || recording -> 0xFF2E7D32.toInt(); else -> 0xE6202124.toInt() })
+            overlay?.setBackgroundColor(when(indicatorPhaseMachine.phase){
+                IndicatorPhase.RED -> 0xFFE53935.toInt()
+                IndicatorPhase.GREEN -> 0xFF2E7D32.toInt()
+                IndicatorPhase.BLACK -> 0xE6202124.toInt()
+            })
         }
         sendBroadcast(Intent(ACTION_STATUS).putExtra(EXTRA_STATUS,status).putExtra(EXTRA_STATEMENT,statement).putExtra(EXTRA_RED,pre).putExtra(EXTRA_ROUNDS,store.all().size))
     }
@@ -552,7 +526,11 @@ class ScreenMonitorService : Service() {
     }
 
     private fun buildOverlayText(status:String,pre:Boolean):String {
-        val marker=if(pre) "● 🔴 " else if(recording) "● REC " else "● "
+        val marker=when(indicatorPhaseMachine.phase){
+            IndicatorPhase.BLACK -> "● ⚫ "
+            IndicatorPhase.GREEN -> "● 🟢 "
+            IndicatorPhase.RED -> "● 🔴 "
+        }
         if(!overlayExpanded) return marker+status+"\nTap to expand · pinch to resize"
         val history=overlayEvents.toList().takeLast(5).joinToString("\n")
         val current=if(history.isBlank()) "Waiting for Aviator screen confirmation" else history

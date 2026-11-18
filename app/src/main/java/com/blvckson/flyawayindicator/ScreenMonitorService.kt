@@ -328,13 +328,16 @@ class ScreenMonitorService : Service() {
             val shortTrend=IndicatorSignalMath.windowTrend(samples,frameTimeMs,250L,2)
             val indicatorTrend=standardTrend ?: shortTrend ?: 0.5
 
-            val planeEvidence=state.planeScore>=0.08
-            val trendEvidence=indicatorTrend>=0.54
-            val visualEvidence=central>=0.08
-            val movementEvidence=lastMove>=0.07
-            val candidate=(indicatorTrend*0.36+central*0.24+
-                state.planeScore.coerceIn(0.0,1.0)*0.18+
-                lastMove.coerceIn(0.0,1.0)*0.22).coerceIn(0.0,1.0)
+            // Combine motion, scale and shape signals instead of relying on
+            // the aircraft centroid alone. The separate components are also logged
+            // in the per-round trace so real-device behaviour can be calibrated.
+            val movementSignal=max(lastMove,state.planeMovementScore).coerceIn(0.0,1.0)
+            val geometrySignal=(geometryChange/0.12).coerceIn(0.0,1.0)
+            val shapeSignal=(shapeChange/0.15).coerceIn(0.0,1.0)
+            val candidate=(indicatorTrend*0.32+central*0.22+
+                state.planeScore.coerceIn(0.0,1.0)*0.15+
+                movementSignal*0.15+geometrySignal*0.08+shapeSignal*0.08)
+                .coerceIn(0.0,1.0)
 
             val roundAgeMs=(frameTimeMs-indicatorRoundStartedAtMs).coerceAtLeast(0L)
             // The first three samples are kept separately for a conservative short-round
@@ -352,9 +355,6 @@ class ScreenMonitorService : Service() {
             val shortBaselineReady=roundAgeMs<1800L &&
                 indicatorFrames>=5 && indicatorShortBaseline.size>=3
             val activeBaselineScore=if(baselineReady) indicatorBaselineScore else indicatorShortBaselineScore
-            val aboveRoundBaseline=(baselineReady || shortBaselineReady) &&
-                candidate>=max(0.18,activeBaselineScore*1.10) &&
-                candidate-activeBaselineScore>=0.015
 
             val frameDeltaMs=if(indicatorLastFrameAtMs==0L) 33L
                 else (frameTimeMs-indicatorLastFrameAtMs).coerceIn(1L,500L)
@@ -362,30 +362,38 @@ class ScreenMonitorService : Service() {
             val smoothing=(frameDeltaMs/450.0).coerceIn(0.03,0.65)
             indicatorPreScore=indicatorPreScore*(1.0-smoothing)+candidate*smoothing
 
-            val evidenceCount=(if(trendEvidence)1 else 0)+(if(visualEvidence)1 else 0)+
-                (if(planeEvidence)1 else 0)+(if(movementEvidence)1 else 0)
-            val pairedEvidence=(trendEvidence && (visualEvidence || movementEvidence || planeEvidence)) ||
-                (visualEvidence && movementEvidence) || (movementEvidence && planeEvidence)
-
-            val baselineRise=candidate-activeBaselineScore
-            val strongVisualSurge=baselineReady && standardTrend!=null &&
-                standardTrend>=0.64 && baselineRise>=0.055 &&
-                candidate>=max(0.25,indicatorBaselineScore*1.40)
-
-            // Short rounds can finish before the full 1.8-second baseline and 800 ms
-            // trend windows exist. This fallback is deliberately stricter and remains
-            // provisional until it has been checked against labelled real-round clips.
-            val strongShortRoundSignal=shortBaselineReady && shortTrend!=null &&
-                shortTrend>=0.78 &&
-                candidate>=max(0.34,indicatorShortBaselineScore+0.10) &&
-                evidenceCount>=3 && pairedEvidence
-
-            val normalPreEvidence=strongVisualSurge && aboveRoundBaseline &&
-                evidenceCount>=3 && pairedEvidence &&
-                (lastMove>=0.075 || central>=0.12 || (standardTrend ?: 0.0)>=0.78)
-            val preEvidence=visualLive && indicatorPreScore>=0.25 &&
-                (normalPreEvidence || strongShortRoundSignal) &&
-                (lastMove>=0.075 || central>=0.12 || indicatorTrend>=0.78)
+            // Require a rising per-round signal plus at least one independent visual
+            // change. Aircraft presence by itself is not counted as corroboration.
+            // Geometry/shape cues allow a size or silhouette shift to contribute even
+            // when the plane's centre barely moves.
+            val strongVisualSurge=IndicatorSignalMath.shouldTriggerPreFlySurge(
+                baselineReady=baselineReady,
+                shortBaselineReady=false,
+                standardTrend=standardTrend,
+                shortTrend=null,
+                candidateScore=candidate,
+                baselineScore=indicatorBaselineScore,
+                centralChange=central,
+                movementScore=movementSignal,
+                geometryChange=geometryChange,
+                shapeChange=shapeChange
+            )
+            // The short-round path uses the same corroboration rule with its own
+            // smaller baseline and faster trend window.
+            val strongShortRoundSignal=IndicatorSignalMath.shouldTriggerPreFlySurge(
+                baselineReady=false,
+                shortBaselineReady=shortBaselineReady,
+                standardTrend=null,
+                shortTrend=shortTrend,
+                candidateScore=candidate,
+                baselineScore=indicatorShortBaselineScore,
+                centralChange=central,
+                movementScore=movementSignal,
+                geometryChange=geometryChange,
+                shapeChange=shapeChange
+            )
+            val preEvidence=visualLive && indicatorPreScore>=0.18 &&
+                (strongVisualSurge || strongShortRoundSignal)
 
             if(indicatorTraceActive) {
                 val traceSample=IndicatorTraceSample(

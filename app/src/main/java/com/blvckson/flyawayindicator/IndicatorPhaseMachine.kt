@@ -1,18 +1,32 @@
 package com.blvckson.flyawayindicator
 
-/**
- * Owns the indicator's three visible states.
- *
- * The live-screen detector already confirms multiple consecutive aircraft/game
- * frames. Do not add another start-confirmation counter here: that creates a
- * second delay before BLACK -> GREEN. End transitions are intentionally
- * asymmetric: an explicit end marker resets immediately; otherwise three
- * consecutive frames without live evidence reset the indicator.
- */
+/** Owns the three visible states and the guarded early round-start gate. */
 internal enum class IndicatorPhase {
     BLACK,
     GREEN,
     RED
+}
+
+internal object LiveStartPolicy {
+    fun isConfirmed(
+        stableHits: Int,
+        missHits: Int,
+        confidence: Double,
+        centralScore: Double,
+        sceneScore: Double,
+        planeScore: Double
+    ): Boolean {
+        if (missHits != 0) return false
+
+        val strongTwoFrameStart = stableHits >= 2 &&
+            confidence >= 0.40 &&
+            centralScore >= 0.10 &&
+            sceneScore >= 0.19 &&
+            planeScore >= 0.10
+
+        val normalConfirmedStart = stableHits >= 3 && confidence >= 0.60
+        return strongTwoFrameStart || normalConfirmedStart
+    }
 }
 
 internal class IndicatorPhaseMachine(
@@ -29,8 +43,6 @@ internal class IndicatorPhaseMachine(
 
     fun observeLive(visualLive: Boolean, endConfirmed: Boolean): IndicatorPhase {
         if (visualLive) {
-            // Fresh live visual evidence takes priority over stale OCR end text.
-            // This lets the next round turn green as soon as its visual gate passes.
             missingLiveFrames = 0
             if (phase == IndicatorPhase.BLACK) {
                 phase = IndicatorPhase.GREEN
@@ -40,19 +52,14 @@ internal class IndicatorPhaseMachine(
                 reset()
             } else {
                 missingLiveFrames++
-                if (missingLiveFrames >= missingFramesToReset) {
-                    reset()
-                }
+                if (missingLiveFrames >= missingFramesToReset) reset()
             }
         }
         return phase
     }
 
-    /** RED is latched for the current round until the round-end reset. */
     fun markPreFlyAway(): IndicatorPhase {
-        if (phase == IndicatorPhase.GREEN) {
-            phase = IndicatorPhase.RED
-        }
+        if (phase == IndicatorPhase.GREEN) phase = IndicatorPhase.RED
         return phase
     }
 

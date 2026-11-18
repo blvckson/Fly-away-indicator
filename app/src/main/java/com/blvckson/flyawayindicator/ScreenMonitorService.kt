@@ -44,6 +44,13 @@ class ScreenMonitorService : Service() {
     private var nextRound=1
     private val redReader=RedMultiplierReader()
     private lateinit var store:RoundRecordStore
+    private lateinit var indicatorTraceStore:IndicatorTraceStore
+    private var indicatorTraceActive=false
+    private var indicatorTraceRoundNumber=0
+    private var indicatorTraceStartMs=0L
+    private var lastPlaneWidthNorm=Double.NaN
+    private var lastPlaneHeightNorm=Double.NaN
+    private var lastPlaneAspect=Double.NaN
     private val thread=HandlerThread("FlyAwayCapture",Process.THREAD_PRIORITY_DISPLAY)
     private lateinit var handler:Handler
     private lateinit var main:Handler
@@ -94,15 +101,21 @@ class ScreenMonitorService : Service() {
     // The indicator remains independent from recording/saving. Its own early-round
     // baseline prevents ordinary take-off animation from immediately turning it red.
     private val indicatorChanges=ArrayDeque<Double>()
+    private val indicatorTimedChanges=ArrayDeque<IndicatorSignalSample>()
     private val indicatorBaseline=ArrayDeque<Double>()
+    private val indicatorShortBaseline=ArrayDeque<Double>()
     private var indicatorRoundActive=false
     private var indicatorLiveHits=0
-    private var indicatorMisses=0
+    private var indicatorLastLiveAtMs=0L
     private var indicatorPreScore=0.0
     private var indicatorPreHold=0
     private var indicatorPreDetected=false
     private var indicatorFrames=0
     private var indicatorBaselineScore=0.0
+    private var indicatorShortBaselineScore=0.0
+    private var indicatorRoundStartedAtMs=0L
+    private var indicatorLastHoldFrameMs=0L
+    private var indicatorLastFrameAtMs=0L
     private var indicatorEndCooldownUntil=0L
     private var indicatorEndLatched=false
     private var indicatorRoundHadActivity=false
@@ -110,6 +123,7 @@ class ScreenMonitorService : Service() {
     override fun onCreate(){
         super.onCreate()
         store=RoundRecordStore(this)
+        indicatorTraceStore=IndicatorTraceStore(this)
         nextRound=(store.all().maxOfOrNull{it.round}?:0)+1
         analysisThread=HandlerThread("FlyAwayRoundAnalysis",Process.THREAD_PRIORITY_BACKGROUND)
         analysisThread.start()
@@ -177,10 +191,9 @@ class ScreenMonitorService : Service() {
         textVerifier.inspect(frame)
         val state=detector.inspect(frame)
         val change=lastFrame?.let{frameDifference(it,frame)} ?: 0.0
+        val frameTimeMs=SystemClock.elapsedRealtime()
         recentChanges.addLast(change)
         while(recentChanges.size>24)recentChanges.removeFirst()
-        indicatorChanges.addLast(change)
-        while(indicatorChanges.size>36)indicatorChanges.removeFirst()
 
         if(!state.planeX.isNaN() && !state.planeY.isNaN()){
             missing=0
@@ -194,6 +207,28 @@ class ScreenMonitorService : Service() {
 
         val central=centralChange(lastFrame,frame)
         val planePresent = !state.planeX.isNaN() && !state.planeY.isNaN()
+        val planeWidthNorm=if(planePresent && state.planeWidthPx.isFinite()) state.planeWidthPx.toDouble()/w else null
+        val planeHeightNorm=if(planePresent && state.planeHeightPx.isFinite()) state.planeHeightPx.toDouble()/h else null
+        val planeAspect=if(planePresent && state.planeAspectRatio.isFinite()) state.planeAspectRatio.toDouble() else null
+        val geometryChange=IndicatorSignalMath.relativeGeometryChange(
+            planeWidthNorm ?: Double.NaN,
+            planeHeightNorm ?: Double.NaN,
+            lastPlaneWidthNorm.takeIf { it.isFinite() },
+            lastPlaneHeightNorm.takeIf { it.isFinite() }
+        )
+        val shapeChange=IndicatorSignalMath.relativeShapeChange(
+            planeAspect ?: Double.NaN,
+            lastPlaneAspect.takeIf { it.isFinite() }
+        )
+        if(planeWidthNorm!=null && planeHeightNorm!=null) {
+            lastPlaneWidthNorm=planeWidthNorm
+            lastPlaneHeightNorm=planeHeightNorm
+            lastPlaneAspect=planeAspect ?: Double.NaN
+        } else {
+            lastPlaneWidthNorm=Double.NaN
+            lastPlaneHeightNorm=Double.NaN
+            lastPlaneAspect=Double.NaN
+        }
         val visualLive = state.isLive &&
             state.sceneScore >= 0.16 &&
             state.planeScore >= 0.08 &&
@@ -205,19 +240,29 @@ class ScreenMonitorService : Service() {
         val nowMs=System.currentTimeMillis()
         if(!endConfirmed) indicatorEndLatched=false
         if(endConfirmed){
+            // Store the end marker in the diagnostic trace before clearing round state.
+            finishIndicatorTrace("ocr_end_marker", (frameTimeMs-indicatorTraceStartMs).coerceAtLeast(0L))
             // End markers can remain visible for several captured frames. Clear the
             // warning once, then block re-arming until the end screen has passed.
             indicatorRoundActive=false
             indicatorLiveHits=0
-            indicatorMisses=0
+            indicatorLastLiveAtMs=0L
             indicatorPreScore=0.0
             indicatorPreHold=0
             indicatorPreDetected=false
             indicatorFrames=0
             indicatorBaselineScore=0.0
+            indicatorShortBaselineScore=0.0
             indicatorRoundHadActivity=false
             indicatorBaseline.clear()
+            indicatorShortBaseline.clear()
             indicatorChanges.clear()
+            indicatorTimedChanges.clear()
+            recentChanges.clear()
+            detector.resetTracking()
+            indicatorRoundStartedAtMs=0L
+            indicatorLastHoldFrameMs=0L
+            indicatorLastFrameAtMs=0L
             // Latch the end marker once. The OCR verifier can hold an end result
             // briefly, so extending a long cooldown on every frame can skip the
             // next short round entirely.
@@ -226,10 +271,10 @@ class ScreenMonitorService : Service() {
                 indicatorEndLatched=true
             }
             publish("WAITING FOR NEXT ROUND",false,
-                "Round-end marker detected. Indicator reset; waiting for fresh live-round evidence.")
-        }else if(visualLive){
+                "Round-end marker detected. Indicator reset; waiting for fresh live-round evidence. Numeric trace folder: ${indicatorTraceStore.directoryPath()}")
+        }else if(visualLive && (indicatorRoundActive || textVerifier.isVerified())){
             indicatorLiveHits=(indicatorLiveHits+1).coerceAtMost(5)
-            indicatorMisses=0
+            indicatorLastLiveAtMs=frameTimeMs
             if(!indicatorRoundActive && nowMs>=indicatorEndCooldownUntil && indicatorLiveHits>=2){
                 // Every round starts with a fresh baseline and a green indicator.
                 indicatorRoundActive=true
@@ -238,94 +283,165 @@ class ScreenMonitorService : Service() {
                 indicatorPreDetected=false
                 indicatorFrames=0
                 indicatorBaselineScore=0.0
+                indicatorShortBaselineScore=0.0
                 indicatorRoundHadActivity=false
                 indicatorBaseline.clear()
+                indicatorShortBaseline.clear()
+                // Seed the rolling activity window with the frames captured just
+                // before the live-round confirmation, as Build 75 did. This lets
+                // the detector evaluate short rounds immediately after GREEN.
                 indicatorChanges.clear()
+                indicatorChanges.addAll(recentChanges)
+                while(indicatorChanges.size>24)indicatorChanges.removeFirst()
+                indicatorTimedChanges.clear()
+                indicatorRoundStartedAtMs=frameTimeMs
+                indicatorLastHoldFrameMs=0L
+                indicatorLastFrameAtMs=0L
+                indicatorLastLiveAtMs=frameTimeMs
+                lastPlaneWidthNorm=Double.NaN
+                lastPlaneHeightNorm=Double.NaN
+                lastPlaneAspect=Double.NaN
                 recentChanges.clear()
                 lastMove=0.0
                 lastPlaneX=Float.NaN
                 lastPlaneY=Float.NaN
+                indicatorTraceRoundNumber++
+                indicatorTraceStartMs=frameTimeMs
+                indicatorTraceActive=true
+                val traceNumber=indicatorTraceRoundNumber
+                analysisHandler.post {
+                    indicatorTraceStore.beginRound(traceNumber,nowMs)
+                }
             }
         }else{
             indicatorLiveHits=0
-            if(indicatorRoundActive) indicatorMisses=(indicatorMisses+1).coerceAtMost(24)
         }
 
         if(indicatorRoundActive){
             indicatorFrames++
-            // Use this round's own change history. A global history lets the
-            // previous round distort the trend and can leave the indicator green.
-            val indicatorTrend=changeTrend(indicatorChanges)
-            val planeEvidence=state.planeScore>=0.08
-            val trendEvidence=indicatorTrend>=0.54
-            val visualEvidence=central>=0.08
-            val movementEvidence=lastMove>=0.07
-            val candidate=(indicatorTrend*0.36+central*0.24+
-                state.planeScore.coerceIn(0.0,1.0)*0.18+
-                lastMove.coerceIn(0.0,1.0)*0.22).coerceIn(0.0,1.0)
+            // Keep samples strictly within this round. The timestamps use Android's
+            // monotonic clock, so trend windows do not drift with wall-clock changes.
+            indicatorChanges.addLast(change)
+            while(indicatorChanges.size>24)indicatorChanges.removeFirst()
+            indicatorTimedChanges.addLast(IndicatorSignalSample(frameTimeMs,change))
+            while(indicatorTimedChanges.isNotEmpty() &&
+                frameTimeMs-indicatorTimedChanges.first().timeMs>2600L) {
+                indicatorTimedChanges.removeFirst()
+            }
 
-            // Establish a short early-round baseline, then detect a sustained
-            // relative rise. This avoids fixed odds/time cut-offs and keeps the
-            // same rule usable for short, medium and long rounds.
-            if(indicatorFrames<=5){
+            val samples=indicatorTimedChanges.toList()
+            val standardTrend=IndicatorSignalMath.windowTrend(samples,frameTimeMs,800L,3)
+            val shortTrend=IndicatorSignalMath.windowTrend(samples,frameTimeMs,250L,2)
+
+            // Restore the signal blend from the user's previously successful
+            // Build 75 behaviour. This is sample-count based: fixed 250/800 ms
+            // windows can remain unavailable on a slower Android capture loop.
+            // indicatorChanges is cleared at round start, so prior-round frames
+            // never influence this round's score.
+            val indicatorTrend=IndicatorSignalMath.relativeActivityTrend(indicatorChanges.toList())
+            val candidate=IndicatorSignalMath.build75Candidate(
+                indicatorTrend=indicatorTrend,
+                centralChange=central,
+                planeScore=state.planeScore,
+                movementScore=lastMove
+            )
+
+            val roundAgeMs=(frameTimeMs-indicatorRoundStartedAtMs).coerceAtLeast(0L)
+            // The first three samples are kept separately for a conservative short-round
+            // fallback. The normal path uses a longer, median-based opening baseline.
+            if(indicatorShortBaseline.size<3) {
+                indicatorShortBaseline.addLast(candidate)
+                indicatorShortBaselineScore=IndicatorSignalMath.median(indicatorShortBaseline.toList())
+            }
+            if(roundAgeMs<=1800L) {
                 indicatorBaseline.addLast(candidate)
-                indicatorBaselineScore=indicatorBaseline.average()
+                while(indicatorBaseline.size>90)indicatorBaseline.removeFirst()
+                indicatorBaselineScore=IndicatorSignalMath.median(indicatorBaseline.toList())
             }
-            val baselineReady=indicatorFrames>5 && indicatorBaseline.isNotEmpty()
-            val aboveRoundBaseline=baselineReady &&
-                candidate>=max(0.18,indicatorBaselineScore*1.10) &&
-                candidate-indicatorBaselineScore>=0.015
-            indicatorPreScore=indicatorPreScore*0.55+candidate*0.45
+            val baselineReady=roundAgeMs>=1800L && indicatorBaseline.size>=8
+            val shortBaselineReady=roundAgeMs<1800L &&
+                indicatorFrames>=5 && indicatorShortBaseline.size>=3
+            val activeBaselineScore=if(baselineReady) indicatorBaselineScore else indicatorShortBaselineScore
 
-            val evidenceCount=(if(trendEvidence)1 else 0)+(if(visualEvidence)1 else 0)+
-                (if(planeEvidence)1 else 0)+(if(movementEvidence)1 else 0)
-            val pairedEvidence=(trendEvidence && (visualEvidence || movementEvidence || planeEvidence)) ||
-                (visualEvidence && movementEvidence) || (movementEvidence && planeEvidence)
-            // Position alone is not a pre-fly signal: the plane can reach the upper/right
-            // area early in a very long round. Require a meaningful surge above this
-            // round's own opening baseline plus corroborating movement/visual evidence.
-            val baselineRise = candidate - indicatorBaselineScore
-            val strongVisualSurge = indicatorTrend >= 0.64 &&
-                baselineRise >= 0.055 &&
-                candidate >= max(0.25, indicatorBaselineScore * 1.40)
-            val lateFlightRegion = planePresent &&
-                (state.planeX >= w * 0.78f || state.planeY <= h * 0.20f)
-            // Short rounds can end before the plane reaches the late-flight region;
-            // allow only a sharper, multi-signal surge in that case.
-            val strongShortRoundSignal = indicatorFrames >= 4 &&
-                indicatorTrend >= 0.78 &&
-                candidate >= max(0.34, indicatorBaselineScore + 0.10) &&
-                evidenceCount >= 3 && pairedEvidence
-            val preEvidence = strongVisualSurge &&
-                indicatorPreScore >= 0.25 &&
-                evidenceCount >= 2 && pairedEvidence &&
-                ((lateFlightRegion && (lastMove >= 0.075 || central >= 0.12)) ||
-                    strongShortRoundSignal)
-            if(preEvidence){
-                indicatorRoundHadActivity=true
-                indicatorPreHold=(indicatorPreHold+1).coerceAtMost(7)
-            }else{
-                indicatorPreHold=max(0,indicatorPreHold-1)
+            val frameDeltaMs=if(indicatorLastFrameAtMs==0L) 33L
+                else (frameTimeMs-indicatorLastFrameAtMs).coerceIn(1L,500L)
+            indicatorLastFrameAtMs=frameTimeMs
+            indicatorPreScore=IndicatorSignalMath.smoothBuild75Score(
+                indicatorPreScore,candidate
+            )
+
+            // Keep the Build 75 leaky hold: intermittent frame misses reduce
+            // confidence by one rather than resetting it. A long capture pause
+            // starts a fresh sequence, but contiguous 220 ms confirmation is not
+            // imposed because that can be impossible at low capture frame rates.
+            if(indicatorLastHoldFrameMs>0L &&
+                frameTimeMs-indicatorLastHoldFrameMs>1500L) {
+                indicatorPreHold=0
             }
-            // Require a sustained late-stage signal; don't flash red on one noisy frame.
+            indicatorLastHoldFrameMs=frameTimeMs
+            indicatorPreHold=IndicatorSignalMath.updateBuild75Hold(
+                indicatorPreHold,indicatorPreScore
+            )
+            val preEvidence=indicatorPreScore>=0.62
+            if(preEvidence) indicatorRoundHadActivity=true
             if(indicatorPreHold>=3) indicatorPreDetected=true
 
-            // End screens can be missed by OCR. A sustained loss of live-game
-            // evidence ends this indicator cycle and guarantees a clean next round.
-            if(indicatorMisses>=18){
+            if(indicatorTraceActive) {
+                val traceSample=IndicatorTraceSample(
+                    wallTimeMs=nowMs,
+                    elapsedMs=(frameTimeMs-indicatorTraceStartMs).coerceAtLeast(0L),
+                    frameDeltaMs=frameDeltaMs,
+                    globalChange=change,
+                    centralChange=central,
+                    planeScore=state.planeScore,
+                    planeXNorm=if(planePresent) state.planeX.toDouble()/w else null,
+                    planeYNorm=if(planePresent) state.planeY.toDouble()/h else null,
+                    planeWidthNorm=planeWidthNorm,
+                    planeHeightNorm=planeHeightNorm,
+                    planePixelCount=state.planePixelCount,
+                    planeAspectRatio=planeAspect,
+                    planeFillRatio=state.planeFillRatio.toDouble(),
+                    geometryChange=geometryChange,
+                    shapeChange=shapeChange,
+                    movementScore=lastMove,
+                    detectorMovementScore=state.planeMovementScore,
+                    trend800Ms=standardTrend,
+                    trend250Ms=shortTrend,
+                    candidateScore=candidate,
+                    baselineScore=activeBaselineScore,
+                    preEvidence=preEvidence,
+                    red=indicatorPreDetected,
+                    ocrVerified=textVerifier.isVerified(),
+                    visualLive=visualLive,
+                    endConfirmed=endConfirmed
+                )
+                analysisHandler.post { indicatorTraceStore.append(traceSample) }
+            }
+
+            // Reset on elapsed live-screen loss, not a frame count that changes with FPS.
+            if(IndicatorSignalMath.shouldResetRound(frameTimeMs,indicatorLastLiveAtMs,3000L)){
+                finishIndicatorTrace("live_signal_lost_3s", (frameTimeMs-indicatorTraceStartMs).coerceAtLeast(0L))
                 indicatorRoundActive=false
                 indicatorLiveHits=0
-                indicatorMisses=0
+                indicatorLastLiveAtMs=0L
                 indicatorPreScore=0.0
                 indicatorPreHold=0
+                indicatorLastHoldFrameMs=0L
                 indicatorPreDetected=false
                 indicatorFrames=0
                 indicatorBaselineScore=0.0
+                indicatorShortBaselineScore=0.0
                 indicatorRoundHadActivity=false
                 indicatorBaseline.clear()
+                indicatorShortBaseline.clear()
                 indicatorChanges.clear()
+                indicatorTimedChanges.clear()
+                recentChanges.clear()
+                indicatorRoundStartedAtMs=0L
+                indicatorLastFrameAtMs=0L
+                detector.resetTracking()
                 publish("WAITING FOR NEXT ROUND",false,
-                    "Live-round evidence ended. Indicator reset and ready for the next round.")
+                    "Live-round evidence ended for 3 seconds. Indicator reset and ready for the next round. Numeric trace folder: ${indicatorTraceStore.directoryPath()}")
             }
         }
 
@@ -503,11 +619,21 @@ class ScreenMonitorService : Service() {
         return total.toDouble()/max(1,n*255)
     }
 
+    private fun finishIndicatorTrace(reason:String,elapsedMs:Long){
+        if(!indicatorTraceActive) return
+        indicatorTraceActive=false
+        if(::analysisHandler.isInitialized && ::indicatorTraceStore.isInitialized) {
+            analysisHandler.post { indicatorTraceStore.finishRound(reason,elapsedMs) }
+        }
+    }
+
     private fun publish(status:String,pre:Boolean,statement:String){
         if(status==lastPublishedStatus && pre==lastPublishedPre && statement==lastPublishedStatement) return
+        val enteredRed=pre && !lastPublishedPre
         lastPublishedStatus=status
         lastPublishedPre=pre
         lastPublishedStatement=statement
+        if(enteredRed) vibrateForPreFlyAway()
         if(status!=lastLoggedStatus){
             val stamp=SimpleDateFormat("HH:mm:ss",Locale.US).format(Date())
             overlayEvents.addLast("$stamp  $status")
@@ -525,9 +651,32 @@ class ScreenMonitorService : Service() {
             overlay?.text=buildOverlayText(status,pre)
             overlay?.textSize=overlayTextSize
             overlay?.setTextColor(0xFFFFFFFF.toInt())
-            overlay?.setBackgroundColor(when { pre -> 0xFFE53935.toInt(); indicatorRoundActive || recording -> 0xFF2E7D32.toInt(); else -> 0xE6202124.toInt() })
+            overlay?.setBackgroundColor(when {
+                pre && indicatorRoundActive -> 0xFFE53935.toInt()
+                indicatorRoundActive -> 0xFF2E7D32.toInt()
+                else -> 0xFF000000.toInt()
+            })
         }
         sendBroadcast(Intent(ACTION_STATUS).putExtra(EXTRA_STATUS,status).putExtra(EXTRA_STATEMENT,statement).putExtra(EXTRA_RED,pre).putExtra(EXTRA_ROUNDS,store.all().size))
+    }
+
+    private fun vibrateForPreFlyAway(){
+        try {
+            val vibrator=if(Build.VERSION.SDK_INT>=Build.VERSION_CODES.S) {
+                (getSystemService(VIBRATOR_MANAGER_SERVICE) as VibratorManager).defaultVibrator
+            } else {
+                @Suppress("DEPRECATION")
+                getSystemService(VIBRATOR_SERVICE) as Vibrator
+            }
+            if(Build.VERSION.SDK_INT>=Build.VERSION_CODES.O) {
+                vibrator.vibrate(VibrationEffect.createOneShot(450L,VibrationEffect.DEFAULT_AMPLITUDE))
+            } else {
+                @Suppress("DEPRECATION")
+                vibrator.vibrate(450L)
+            }
+        } catch (_:Throwable) {
+            // Red remains visible even if vibration hardware is unavailable.
+        }
     }
 
     private fun buildOverlayText(status:String,pre:Boolean):String {
@@ -588,6 +737,7 @@ class ScreenMonitorService : Service() {
         label.text="● WAITING FOR AVIATOR\nLIVE CAPTURE PREVIEW — waiting for first frame\nDrag to move · tap to hide/show preview · pinch to resize"
         label.textSize=overlayTextSize
         label.setTextColor(0xFFFFFFFF.toInt())
+        label.setBackgroundColor(0xFF000000.toInt())
         label.setPadding(10,8,10,8)
         panel.addView(titleBar)
         panel.addView(image)
@@ -694,6 +844,7 @@ class ScreenMonitorService : Service() {
 
     override fun onDestroy(){
         try{finishRound()}catch(_:Throwable){}
+        finishIndicatorTrace("service_stopped", (SystemClock.elapsedRealtime()-indicatorTraceStartMs).coerceAtLeast(0L))
         reader?.close();reader=null;projection?.stop();projection=null
         recorder?.release();recorder=null
         lastFrame?.recycle();lastFrame=null

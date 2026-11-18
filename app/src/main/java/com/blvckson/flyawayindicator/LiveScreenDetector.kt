@@ -11,7 +11,13 @@ data class LiveScreenState(
     val multiplierVisualScore: Double,
     val sceneScore: Double,
     val planeX: Float = Float.NaN,
-    val planeY: Float = Float.NaN
+    val planeY: Float = Float.NaN,
+    val planeWidthPx: Float = Float.NaN,
+    val planeHeightPx: Float = Float.NaN,
+    val planePixelCount: Int = 0,
+    val planeAspectRatio: Float = Float.NaN,
+    val planeFillRatio: Float = 0f,
+    val planeMovementScore: Double = 0.0
 )
 
 /**
@@ -25,6 +31,15 @@ class LiveScreenDetector {
     private var stableHits = 0
     private var missHits = 0
     private var confidence = 0.0
+
+    /** Clear cross-round aircraft history before a fresh round is evaluated. */
+    fun resetTracking() {
+        lastPlaneX = Float.NaN
+        lastPlaneY = Float.NaN
+        stableHits = 0
+        missHits = 0
+        confidence = 0.0
+    }
 
     fun inspect(frame: Bitmap): LiveScreenState {
         val w = frame.width
@@ -64,7 +79,13 @@ class LiveScreenDetector {
         var bestX = Float.NaN
         var bestY = Float.NaN
         var bestAspect = 0.0
+        var bestWidthPx = Float.NaN
+        var bestHeightPx = Float.NaN
+        var bestFillRatio = 0f
         val queue = IntArray(redMask.size)
+        // Keep the accepted connected-component ceiling consistent with the
+        // display-scaled compactness check below and the final scene candidate gate.
+        val maxComponentCount = max(160, redMask.size / 110)
         for (start in redMask.indices) {
             if (!redMask[start] || seen[start]) continue
             var head = 0
@@ -104,7 +125,6 @@ class LiveScreenDetector {
             // vary with screen scale, so these are deliberately coarse bounds.
             // Scale bounds with the sampled screen grid. Different phones and
             // display scaling can make the same aircraft occupy different pixel counts.
-            val maxComponentCount=max(160, redMask.size/110)
             val maxComponentWidth=max(30, cols/7)
             val maxComponentHeight=max(22, rows/6)
             val compact = count in 2..maxComponentCount &&
@@ -121,6 +141,9 @@ class LiveScreenDetector {
                 bestX = cx
                 bestY = cy
                 bestAspect = aspect
+                bestWidthPx = (bw * step).toFloat()
+                bestHeightPx = (bh * step).toFloat()
+                bestFillRatio = (count.toFloat() / max(1, bw * bh)).coerceIn(0f, 1f)
             }
         }
 
@@ -147,7 +170,7 @@ class LiveScreenDetector {
         // A compact aircraft-like red object AND the central game area are both
         // mandatory. Require repeat confirmation; movement is supporting evidence,
         // not a hard requirement, to tolerate paused/low-frame-rate capture.
-        val candidate = bestCount in 2..160 &&
+        val candidate = bestCount in 2..maxComponentCount &&
             bestAspect in 0.35..4.8 &&
             central >= 0.07 &&
             sceneScore >= 0.16
@@ -165,7 +188,9 @@ class LiveScreenDetector {
         val live = confidence >= 0.60 && stableHits >= 4 && missHits < 2
         return LiveScreenState(
             live, planeScore, central, sceneScore,
-            bestX, bestY
+            bestX, bestY, bestWidthPx, bestHeightPx, bestCount,
+            if (bestCount > 0) bestAspect.toFloat() else Float.NaN,
+            bestFillRatio, movementScore
         )
     }
 

@@ -1,0 +1,71 @@
+package com.blvckson.flyawaycustomer
+
+import android.hardware.display.DisplayManager
+import android.hardware.display.VirtualDisplay
+import android.media.MediaRecorder
+import android.media.projection.MediaProjection
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+class RoundVideoRecorder(private val projection: MediaProjection, private val context: android.content.Context) {
+    private var recorder: MediaRecorder? = null
+    private var display: VirtualDisplay? = null
+    private var outputFile: File? = null
+
+    fun start(width: Int, height: Int, density: Int): File? {
+        if (recorder != null) return outputFile
+        val safeWidth = (width and 1.inv()).coerceAtLeast(2)
+        val safeHeight = (height and 1.inv()).coerceAtLeast(2)
+        val base = context.getExternalFilesDir("movies") ?: context.filesDir
+        val dir = File(base, "FlyAwayIndicator")
+        if (!dir.exists() && !dir.mkdirs()) return null
+
+        val stamp = SimpleDateFormat("yyyyMMdd_HHmmss_SSS", Locale.US).format(Date())
+        val file = File(dir, "round_$stamp.mp4")
+        val r = MediaRecorder()
+        try {
+            r.setVideoSource(MediaRecorder.VideoSource.SURFACE)
+            r.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+            r.setVideoEncoder(MediaRecorder.VideoEncoder.H264)
+            r.setVideoEncodingBitRate(12_000_000)
+            r.setVideoFrameRate(30)
+            r.setVideoSize(safeWidth, safeHeight)
+            r.setOutputFile(file.absolutePath)
+            r.prepare()
+            display = projection.createVirtualDisplay(
+                "FlyAwayRoundRecording",
+                safeWidth, safeHeight, density,
+                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                r.surface, null, null
+            )
+            r.start()
+            recorder = r
+            outputFile = file
+            return file
+        } catch (_: Throwable) {
+            try { display?.release() } catch (_: Throwable) {}
+            display = null
+            try { r.reset() } catch (_: Throwable) {}
+            try { r.release() } catch (_: Throwable) {}
+            file.delete()
+            return null
+        }
+    }
+
+    fun stop(): File? {
+        val r = recorder ?: return outputFile
+        val file = outputFile
+        try { r.stop() } catch (_: Throwable) { file?.delete() }
+        try { r.reset() } catch (_: Throwable) {}
+        try { r.release() } catch (_: Throwable) {}
+        try { display?.release() } catch (_: Throwable) {}
+        display = null
+        recorder = null
+        outputFile = null
+        return file?.takeIf { it.exists() && it.length() > 1024L }
+    }
+
+    fun release() { stop() }
+}

@@ -156,7 +156,7 @@ class LiveScreenDetector {
         // A compact aircraft-like red object AND the central game area are both
         // mandatory. Require repeat confirmation; movement is supporting evidence,
         // not a hard requirement, to tolerate paused/low-frame-rate capture.
-        val candidate = bestCount in 2..160 &&
+        val candidate = bestCount in 2..maxComponentCount &&
             bestAspect in 0.35..4.8 &&
             central >= 0.07 &&
             sceneScore >= 0.16
@@ -171,12 +171,17 @@ class LiveScreenDetector {
             confidence = (confidence - 0.22).coerceAtLeast(0.0)
         }
 
-        // Three consecutive aircraft + central-game confirmations are enough.
-        // ScreenMonitorService no longer adds a redundant second live-hit gate.
-        // Report live only while the current frame still contains the confirmed
-        // aircraft/game candidate. The phase machine provides the three-frame
-        // dropout debounce, avoiding detector hysteresis being stacked on top of it.
-        val live = confidence >= 0.60 && stableHits >= 3 && missHits == 0
+        // Permit a two-frame start only when the aircraft and central scene are
+        // unusually strong together. Ordinary candidates retain the three-frame
+        // confirmation, protecting against red UI elements and splash-screen noise.
+        val live = LiveStartPolicy.isConfirmed(
+            stableHits = stableHits,
+            missHits = missHits,
+            confidence = confidence,
+            centralScore = central,
+            sceneScore = sceneScore,
+            planeScore = planeScore
+        )
         return LiveScreenState(
             live, planeScore, central, sceneScore,
             bestX, bestY

@@ -248,7 +248,7 @@ class ScreenMonitorService : Service() {
             }
         }else{
             indicatorLiveHits=0
-            if(indicatorRoundActive) indicatorMisses=(indicatorMisses+1).coerceAtMost(24)
+            if(indicatorRoundActive) indicatorMisses=(indicatorMisses+1).coerceAtMost(100)
         }
 
         if(indicatorRoundActive){
@@ -288,19 +288,13 @@ class ScreenMonitorService : Service() {
             val strongVisualSurge = indicatorTrend >= 0.64 &&
                 baselineRise >= 0.055 &&
                 candidate >= max(0.25, indicatorBaselineScore * 1.40)
-            val lateFlightRegion = planePresent &&
-                (state.planeX >= w * 0.78f || state.planeY <= h * 0.20f)
-            // Short rounds can end before the plane reaches the late-flight region;
-            // allow only a sharper, multi-signal surge in that case.
-            val strongShortRoundSignal = indicatorFrames >= 4 &&
-                indicatorTrend >= 0.78 &&
-                candidate >= max(0.34, indicatorBaselineScore + 0.10) &&
-                evidenceCount >= 3 && pairedEvidence
-            val preEvidence = strongVisualSurge &&
-                indicatorPreScore >= 0.25 &&
-                evidenceCount >= 2 && pairedEvidence &&
-                ((lateFlightRegion && (lastMove >= 0.075 || central >= 0.12)) ||
-                    strongShortRoundSignal)
+            // Trigger from the sustained behavioural change itself, not from the
+            // aircraft reaching a screen edge. Edge position is too late to be a
+            // useful pre-fly-away warning. Require a baseline-relative surge and
+            // three independent cues while the live game is still present.
+            val preEvidence = visualLive && strongVisualSurge && aboveRoundBaseline &&
+                indicatorPreScore >= 0.25 && evidenceCount >= 3 && pairedEvidence &&
+                (lastMove >= 0.075 || central >= 0.12 || indicatorTrend >= 0.78)
             if(preEvidence){
                 indicatorRoundHadActivity=true
                 indicatorPreHold=(indicatorPreHold+1).coerceAtMost(7)
@@ -312,7 +306,10 @@ class ScreenMonitorService : Service() {
 
             // End screens can be missed by OCR. A sustained loss of live-game
             // evidence ends this indicator cycle and guarantees a clean next round.
-            if(indicatorMisses>=18){
+            // Brief detector dropouts must not end/re-arm a round. Keep the RED
+            // latch through transient losses; only a sustained loss (about 3s at
+            // normal capture rates) is accepted as an OCR-missed round transition.
+            if(indicatorMisses>=90){
                 indicatorRoundActive=false
                 indicatorLiveHits=0
                 indicatorMisses=0
@@ -505,9 +502,11 @@ class ScreenMonitorService : Service() {
 
     private fun publish(status:String,pre:Boolean,statement:String){
         if(status==lastPublishedStatus && pre==lastPublishedPre && statement==lastPublishedStatement) return
+        val enteredRed = pre && !lastPublishedPre
         lastPublishedStatus=status
         lastPublishedPre=pre
         lastPublishedStatement=statement
+        if(enteredRed) vibrateForPreFlyAway()
         if(status!=lastLoggedStatus){
             val stamp=SimpleDateFormat("HH:mm:ss",Locale.US).format(Date())
             overlayEvents.addLast("$stamp  $status")
@@ -528,6 +527,19 @@ class ScreenMonitorService : Service() {
             overlay?.setBackgroundColor(when { pre -> 0xFFE53935.toInt(); indicatorRoundActive || recording -> 0xFF2E7D32.toInt(); else -> 0xE6202124.toInt() })
         }
         sendBroadcast(Intent(ACTION_STATUS).putExtra(EXTRA_STATUS,status).putExtra(EXTRA_STATEMENT,statement).putExtra(EXTRA_RED,pre).putExtra(EXTRA_ROUNDS,store.all().size))
+    }
+
+    private fun vibrateForPreFlyAway(){
+        try {
+            @Suppress("DEPRECATION")
+            val vibrator = getSystemService(VIBRATOR_SERVICE) as Vibrator
+            if (Build.VERSION.SDK_INT >= 26) {
+                vibrator.vibrate(VibrationEffect.createOneShot(450L, VibrationEffect.DEFAULT_AMPLITUDE))
+            } else {
+                @Suppress("DEPRECATION")
+                vibrator.vibrate(450L)
+            }
+        } catch (_: Throwable) { }
     }
 
     private fun buildOverlayText(status:String,pre:Boolean):String {

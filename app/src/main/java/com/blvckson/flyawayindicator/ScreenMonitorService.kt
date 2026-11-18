@@ -38,6 +38,7 @@ class ScreenMonitorService : Service() {
     private var recorder:RoundVideoRecorder?=null
     private val detector=LiveScreenDetector()
     private val textVerifier=AviatorTextVerifier()
+    private val indicatorPhaseMachine=IndicatorPhaseMachine()
     private val videoAnalyser=VideoRoundAnalyser()
     private lateinit var analysisThread:HandlerThread
     private lateinit var analysisHandler:Handler
@@ -96,16 +97,15 @@ class ScreenMonitorService : Service() {
     private val indicatorChanges=ArrayDeque<Double>()
     private val indicatorBaseline=ArrayDeque<Double>()
     private var indicatorRoundActive=false
-    private var indicatorLiveHits=0
-    private var indicatorMisses=0
     private var indicatorPreScore=0.0
     private var indicatorPreHold=0
     private var indicatorPreDetected=false
     private var indicatorFrames=0
     private var indicatorBaselineScore=0.0
-    private var indicatorEndCooldownUntil=0L
-    private var indicatorEndLatched=false
+    private var indicatorLastFrameAtMs=0L
     private var indicatorRoundHadActivity=false
+    private var lastIndicatorSignalReport="Signal indices /100 — awaiting first live-round sample."
+    private var latchedRedSignalReport=""
 
     override fun onCreate(){
         super.onCreate()
@@ -179,8 +179,6 @@ class ScreenMonitorService : Service() {
         val change=lastFrame?.let{frameDifference(it,frame)} ?: 0.0
         recentChanges.addLast(change)
         while(recentChanges.size>24)recentChanges.removeFirst()
-        indicatorChanges.addLast(change)
-        while(indicatorChanges.size>36)indicatorChanges.removeFirst()
 
         if(!state.planeX.isNaN() && !state.planeY.isNaN()){
             missing=0
@@ -199,133 +197,146 @@ class ScreenMonitorService : Service() {
             state.planeScore >= 0.08 &&
             state.multiplierVisualScore >= 0.07
 
-        // Start/end the colour detector independently from video recording.
-        // Do not let low-threshold movement alone trigger the pre-fly-away warning.
+        // The aircraft/game detector already confirms consecutive live frames.
+        // Use one phase controller so no second counter or OCR cooldown delays
+        // BLACK -> GREEN, and so stale end-text cannot block the following round.
         val endConfirmed=textVerifier.isEndConfirmed()
-        val nowMs=System.currentTimeMillis()
-        if(!endConfirmed) indicatorEndLatched=false
-        if(endConfirmed){
-            // End markers can remain visible for several captured frames. Clear the
-            // warning once, then block re-arming until the end screen has passed.
-            indicatorRoundActive=false
-            indicatorLiveHits=0
-            indicatorMisses=0
+        val previousIndicatorPhase=indicatorPhaseMachine.phase
+        indicatorPhaseMachine.observeLive(visualLive,endConfirmed)
+        val currentIndicatorPhase=indicatorPhaseMachine.phase
+
+        if(previousIndicatorPhase==IndicatorPhase.BLACK &&
+            currentIndicatorPhase==IndicatorPhase.GREEN){
+            // Start a fresh per-round baseline immediately when the verified live
+            // screen first appears. The current frame becomes opening sample one.
             indicatorPreScore=0.0
             indicatorPreHold=0
             indicatorPreDetected=false
             indicatorFrames=0
+            indicatorLastFrameAtMs=0L
             indicatorBaselineScore=0.0
             indicatorRoundHadActivity=false
+            lastIndicatorSignalReport="Signal indices /100 — collecting opening samples."
+            latchedRedSignalReport=""
             indicatorBaseline.clear()
             indicatorChanges.clear()
-            // Latch the end marker once. The OCR verifier can hold an end result
-            // briefly, so extending a long cooldown on every frame can skip the
-            // next short round entirely.
-            if(!indicatorEndLatched){
-                indicatorEndCooldownUntil=nowMs+350L
-                indicatorEndLatched=true
-            }
-            publish("WAITING FOR NEXT ROUND",false,
-                "Round-end marker detected. Indicator reset; waiting for fresh live-round evidence.")
-        }else if(visualLive){
-            indicatorLiveHits=(indicatorLiveHits+1).coerceAtMost(5)
-            indicatorMisses=0
-            if(!indicatorRoundActive && nowMs>=indicatorEndCooldownUntil && indicatorLiveHits>=2){
-                // Every round starts with a fresh baseline and a green indicator.
-                indicatorRoundActive=true
-                indicatorPreScore=0.0
-                indicatorPreHold=0
-                indicatorPreDetected=false
-                indicatorFrames=0
-                indicatorBaselineScore=0.0
-                indicatorRoundHadActivity=false
-                indicatorBaseline.clear()
-                indicatorChanges.clear()
-                recentChanges.clear()
-                lastMove=0.0
-                lastPlaneX=Float.NaN
-                lastPlaneY=Float.NaN
-            }
-        }else{
-            indicatorLiveHits=0
-            if(indicatorRoundActive) indicatorMisses=(indicatorMisses+1).coerceAtMost(24)
+            recentChanges.clear()
+            lastMove=0.0
+            lastPlaneX=Float.NaN
+            lastPlaneY=Float.NaN
+        }else if(previousIndicatorPhase!=IndicatorPhase.BLACK &&
+            currentIndicatorPhase==IndicatorPhase.BLACK){
+            // Explicit OCR end markers reset immediately. If OCR misses the result,
+            // three consecutive non-live frames reset the phase instead of leaving
+            // the overlay red/green for the old 18-frame timeout.
+            indicatorPreScore=0.0
+            indicatorPreHold=0
+            indicatorPreDetected=false
+            indicatorFrames=0
+            indicatorLastFrameAtMs=0L
+            indicatorBaselineScore=0.0
+            indicatorRoundHadActivity=false
+            lastIndicatorSignalReport="Signal indices /100 — waiting for the next round."
+            latchedRedSignalReport=""
+            indicatorBaseline.clear()
+            indicatorChanges.clear()
+            recentChanges.clear()
+            lastMove=0.0
+            lastPlaneX=Float.NaN
+            lastPlaneY=Float.NaN
+            detector.resetTracking()
         }
 
-        if(indicatorRoundActive){
+        indicatorRoundActive=currentIndicatorPhase!=IndicatorPhase.BLACK
+        indicatorPreDetected=currentIndicatorPhase==IndicatorPhase.RED
+
+        if(indicatorPhaseMachine.phase==IndicatorPhase.GREEN){
             indicatorFrames++
-            // Use this round's own change history. A global history lets the
-            // previous round distort the trend and can leave the indicator green.
-            val indicatorTrend=changeTrend(indicatorChanges)
-            val planeEvidence=state.planeScore>=0.08
-            val trendEvidence=indicatorTrend>=0.54
-            val visualEvidence=central>=0.08
-            val movementEvidence=lastMove>=0.07
-            val candidate=(indicatorTrend*0.36+central*0.24+
-                state.planeScore.coerceIn(0.0,1.0)*0.18+
-                lastMove.coerceIn(0.0,1.0)*0.22).coerceIn(0.0,1.0)
+            // Keep trend samples strictly within this confirmed round. The opening
+            // frame is retained instead of being discarded by the BLACK -> GREEN reset.
+            // Ignore the lobby-to-live screen cut in the trend and central-change
+            // channels; it is a round-start transition, not a pre-fly signal.
+            val roundJustStarted = previousIndicatorPhase==IndicatorPhase.BLACK &&
+                currentIndicatorPhase==IndicatorPhase.GREEN
+            val indicatorFrameChange=if(roundJustStarted) 0.0 else change
+            val indicatorCentralChange=if(roundJustStarted) 0.0 else central
+            indicatorChanges.addLast(indicatorFrameChange)
+            while(indicatorChanges.size>10)indicatorChanges.removeFirst()
 
-            // Establish a short early-round baseline, then detect a sustained
-            // relative rise. This avoids fixed odds/time cut-offs and keeps the
-            // same rule usable for short, medium and long rounds.
-            if(indicatorFrames<=5){
-                indicatorBaseline.addLast(candidate)
-                indicatorBaselineScore=indicatorBaseline.average()
-            }
-            val baselineReady=indicatorFrames>5 && indicatorBaseline.isNotEmpty()
-            val aboveRoundBaseline=baselineReady &&
-                candidate>=max(0.18,indicatorBaselineScore*1.10) &&
-                candidate-indicatorBaselineScore>=0.015
-            indicatorPreScore=indicatorPreScore*0.55+candidate*0.45
-
-            val evidenceCount=(if(trendEvidence)1 else 0)+(if(visualEvidence)1 else 0)+
-                (if(planeEvidence)1 else 0)+(if(movementEvidence)1 else 0)
-            val pairedEvidence=(trendEvidence && (visualEvidence || movementEvidence || planeEvidence)) ||
-                (visualEvidence && movementEvidence) || (movementEvidence && planeEvidence)
-            // Position alone is not a pre-fly signal: the plane can reach the upper/right
-            // area early in a very long round. Require a meaningful surge above this
-            // round's own opening baseline plus corroborating movement/visual evidence.
-            val baselineRise = candidate - indicatorBaselineScore
-            val strongVisualSurge = indicatorTrend >= 0.64 &&
-                baselineRise >= 0.055 &&
-                candidate >= max(0.25, indicatorBaselineScore * 1.40)
-            val lateFlightRegion = planePresent &&
-                (state.planeX >= w * 0.78f || state.planeY <= h * 0.20f)
-            // Short rounds can end before the plane reaches the late-flight region;
-            // allow only a sharper, multi-signal surge in that case.
-            val strongShortRoundSignal = indicatorFrames >= 4 &&
-                indicatorTrend >= 0.78 &&
-                candidate >= max(0.34, indicatorBaselineScore + 0.10) &&
-                evidenceCount >= 3 && pairedEvidence
-            val preEvidence = strongVisualSurge &&
-                indicatorPreScore >= 0.25 &&
-                evidenceCount >= 2 && pairedEvidence &&
-                ((lateFlightRegion && (lastMove >= 0.075 || central >= 0.12)) ||
-                    strongShortRoundSignal)
-            if(preEvidence){
-                indicatorRoundHadActivity=true
-                indicatorPreHold=(indicatorPreHold+1).coerceAtMost(7)
-            }else{
-                indicatorPreHold=max(0,indicatorPreHold-1)
-            }
-            // Require a sustained late-stage signal; don't flash red on one noisy frame.
-            if(indicatorPreHold>=3) indicatorPreDetected=true
-
-            // End screens can be missed by OCR. A sustained loss of live-game
-            // evidence ends this indicator cycle and guarantees a clean next round.
-            if(indicatorMisses>=18){
-                indicatorRoundActive=false
-                indicatorLiveHits=0
-                indicatorMisses=0
-                indicatorPreScore=0.0
+            // Use monotonic capture cadence, not wall-clock time. This keeps the
+            // confirmation responsive on slower devices without assuming a fixed FPS.
+            val frameTimeMs=SystemClock.elapsedRealtime()
+            val elapsedSincePrevious=if(indicatorLastFrameAtMs==0L) 50L
+                else (frameTimeMs-indicatorLastFrameAtMs).coerceAtLeast(1L)
+            if(indicatorLastFrameAtMs>0L && elapsedSincePrevious>700L){
                 indicatorPreHold=0
-                indicatorPreDetected=false
-                indicatorFrames=0
-                indicatorBaselineScore=0.0
-                indicatorRoundHadActivity=false
-                indicatorBaseline.clear()
-                indicatorChanges.clear()
-                publish("WAITING FOR NEXT ROUND",false,
-                    "Live-round evidence ended. Indicator reset and ready for the next round.")
+            }
+            val frameDeltaMs=elapsedSincePrevious.coerceIn(16L,500L)
+            indicatorLastFrameAtMs=frameTimeMs
+
+            // Keep Build 74's adaptive, multi-signal model. Use the recent per-round
+            // trend and a robust four-sample opening baseline so short rounds do not
+            // spend too long calibrating before the late visual change is evaluated.
+            val indicatorTrend=changeTrend(indicatorChanges)
+            val signals=PreFlySignals(
+                trend=indicatorTrend,
+                central=indicatorCentralChange,
+                plane=state.planeScore,
+                movement=lastMove
+            )
+            val candidate=PreFlyTiming.candidate(signals)
+
+            // Two opening observations allow very short rounds to be evaluated
+            // earlier. A two-sample baseline uses a stricter, three-signal path.
+            if(indicatorBaseline.size<2){
+                indicatorBaseline.addLast(candidate)
+                indicatorBaselineScore=PreFlyTiming.medianBaseline(indicatorBaseline.toList())
+            }
+            val baselineSampleCount=indicatorBaseline.size
+            val baselineReady=indicatorFrames>=3 && baselineSampleCount>=2
+
+            // Time-aware smoothing gives slower frames more influence without
+            // imposing a separate fixed-duration confirmation window.
+            val smoothingAlpha=(1.0-kotlin.math.exp(-frameDeltaMs.toDouble()/120.0))
+                .coerceIn(0.22,0.68)
+            indicatorPreScore=if(indicatorFrames==1) candidate
+                else indicatorPreScore*(1.0-smoothingAlpha)+candidate*smoothingAlpha
+
+            val scores=PreFlyTiming.signalScores(signals)
+            lastIndicatorSignalReport=scores.diagnosticLine()
+            val independentSignals=PreFlyTiming.evidenceCount(signals)
+            val preEvidence=baselineReady && PreFlyTiming.isEvidence(
+                signals=signals,
+                candidate=candidate,
+                smoothedScore=indicatorPreScore,
+                baselineScore=indicatorBaselineScore,
+                baselineSampleCount=baselineSampleCount
+            )
+            indicatorPreHold=PreFlyTiming.updatedHold(indicatorPreHold,preEvidence)
+
+            // Update a rolling normal-behaviour baseline during quiet observations.
+            // Freeze it whenever the score rises or multiple channels hint at change.
+            if(baselineReady && !preEvidence && PreFlyTiming.shouldLearnBaseline(
+                candidate=candidate,
+                baselineScore=indicatorBaselineScore,
+                signals=signals
+            )){
+                indicatorBaseline.addLast(candidate)
+                while(indicatorBaseline.size>12)indicatorBaseline.removeFirst()
+                indicatorBaselineScore=PreFlyTiming.medianBaseline(indicatorBaseline.toList())
+            }
+
+            // Strong three-channel evidence can confirm in two frames even at normal
+            // capture cadence; otherwise use three frames, or two on slow capture.
+            val requiredConfirmations=PreFlyTiming.requiredConfirmations(frameDeltaMs,independentSignals)
+            if(indicatorPreHold>=requiredConfirmations &&
+                indicatorPhaseMachine.phase==IndicatorPhase.GREEN){
+                indicatorRoundHadActivity=true
+                indicatorPhaseMachine.markPreFlyAway()
+                indicatorPreDetected=indicatorPhaseMachine.phase==IndicatorPhase.RED
+                latchedRedSignalReport=lastIndicatorSignalReport
+                // Vibrate exactly once, on the GREEN -> RED phase transition.
+                vibrateForPreFlyAway()
             }
         }
 
@@ -360,11 +371,6 @@ class ScreenMonitorService : Service() {
                 }
             }
             if(endingMultiplierHits>=3) stableEndingFrames++ else stableEndingFrames=0
-            if(indicatorPreDetected){
-                publish("PRE-FLY-AWAY DETECTED",true,"Pre-fly-away visual/behavioural transition detected. Red indicator ON.")
-            }else{
-                publish("RECORDING ROUND $round",false,"Whole Aviator live screen is being recorded; visual and plane behaviour are being tracked.")
-            }
             roundFrames++
             val now=System.currentTimeMillis()
             val redMultiplierFrozen = endingMultiplierHits >= 3 &&
@@ -376,14 +382,13 @@ class ScreenMonitorService : Service() {
             if(roundFrames >= 20 && (redMultiplierFrozen || explicitEnd || sustainedPlaneDisappearance)) finishRound()
         }
 
-        if(!recording && indicatorRoundActive){
-            if(indicatorPreDetected){
-                publish("PRE-FLY-AWAY DETECTED",true,
-                    "Pre-fly-away visual/behavioural transition detected. Red indicator ON.")
-            }else{
-                publish("ROUND VISUAL MONITORING — GREEN",false,
-                    "Tracking visual behaviour independently of round recording/saving.")
-            }
+        when(indicatorPhaseMachine.phase){
+            IndicatorPhase.BLACK -> publish("WAITING FOR AVIATOR",false,
+                "Indicator is black. Waiting for verified live-round evidence.")
+            IndicatorPhase.GREEN -> publish("ROUND VISUAL MONITORING — GREEN",false,
+                "Aviator live round confirmed. Tracking visual behaviour for the pre-fly-away change.")
+            IndicatorPhase.RED -> publish("PRE-FLY-AWAY DETECTED",true,
+                "Pre-fly-away visual/behavioural transition detected. Red indicator ON. ${latchedRedSignalReport.ifBlank { lastIndicatorSignalReport }}")
         }
 
         lastFrame?.recycle()
@@ -468,13 +473,8 @@ class ScreenMonitorService : Service() {
         }
     }
 
-    private fun changeTrend(history:ArrayDeque<Double> = recentChanges):Double{
-        if(history.isEmpty())return 0.0
-        val a=history.toList()
-        val early=a.take(max(1,a.size/2)).average()
-        val late=a.takeLast(max(1,a.size/2)).average()
-        return ((late-early)/max(0.012,early+0.012)+0.5).coerceIn(0.0,1.0)
-    }
+    private fun changeTrend(history:ArrayDeque<Double> = recentChanges):Double =
+        PreFlyTiming.trend(history.toList())
 
     private fun centralChange(a:Bitmap?,b:Bitmap):Double{
         if(a==null)return 0.0
@@ -525,13 +525,40 @@ class ScreenMonitorService : Service() {
             overlay?.text=buildOverlayText(status,pre)
             overlay?.textSize=overlayTextSize
             overlay?.setTextColor(0xFFFFFFFF.toInt())
-            overlay?.setBackgroundColor(when { pre -> 0xFFE53935.toInt(); indicatorRoundActive || recording -> 0xFF2E7D32.toInt(); else -> 0xE6202124.toInt() })
+            overlay?.setBackgroundColor(when(indicatorPhaseMachine.phase){
+                IndicatorPhase.RED -> 0xFFE53935.toInt()
+                IndicatorPhase.GREEN -> 0xFF2E7D32.toInt()
+                IndicatorPhase.BLACK -> 0xE6202124.toInt()
+            })
         }
         sendBroadcast(Intent(ACTION_STATUS).putExtra(EXTRA_STATUS,status).putExtra(EXTRA_STATEMENT,statement).putExtra(EXTRA_RED,pre).putExtra(EXTRA_ROUNDS,store.all().size))
     }
 
+    private fun vibrateForPreFlyAway(){
+        try{
+            val vibrator=if(Build.VERSION.SDK_INT>=Build.VERSION_CODES.S){
+                (getSystemService(VIBRATOR_MANAGER_SERVICE) as VibratorManager).defaultVibrator
+            }else{
+                @Suppress("DEPRECATION")
+                getSystemService(VIBRATOR_SERVICE) as Vibrator
+            }
+            if(Build.VERSION.SDK_INT>=Build.VERSION_CODES.O){
+                vibrator.vibrate(VibrationEffect.createOneShot(450L,VibrationEffect.DEFAULT_AMPLITUDE))
+            }else{
+                @Suppress("DEPRECATION")
+                vibrator.vibrate(450L)
+            }
+        }catch(_:Throwable){
+            // Keep the visual red alert even if vibration is unavailable.
+        }
+    }
+
     private fun buildOverlayText(status:String,pre:Boolean):String {
-        val marker=if(pre) "● 🔴 " else if(recording) "● REC " else "● "
+        val marker=when(indicatorPhaseMachine.phase){
+            IndicatorPhase.BLACK -> "● ⚫ "
+            IndicatorPhase.GREEN -> "● 🟢 "
+            IndicatorPhase.RED -> "● 🔴 "
+        }
         if(!overlayExpanded) return marker+status+"\nTap to expand · pinch to resize"
         val history=overlayEvents.toList().takeLast(5).joinToString("\n")
         val current=if(history.isBlank()) "Waiting for Aviator screen confirmation" else history

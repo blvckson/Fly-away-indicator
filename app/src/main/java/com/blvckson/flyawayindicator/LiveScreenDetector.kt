@@ -26,6 +26,15 @@ class LiveScreenDetector {
     private var missHits = 0
     private var confidence = 0.0
 
+    /** Clear aircraft confirmation history after a completed round. */
+    fun resetTracking() {
+        lastPlaneX = Float.NaN
+        lastPlaneY = Float.NaN
+        stableHits = 0
+        missHits = 0
+        confidence = 0.0
+    }
+
     fun inspect(frame: Bitmap): LiveScreenState {
         val w = frame.width
         val h = frame.height
@@ -65,6 +74,7 @@ class LiveScreenDetector {
         var bestY = Float.NaN
         var bestAspect = 0.0
         val queue = IntArray(redMask.size)
+        val maxComponentCount=max(160, redMask.size/110)
         for (start in redMask.indices) {
             if (!redMask[start] || seen[start]) continue
             var head = 0
@@ -104,7 +114,6 @@ class LiveScreenDetector {
             // vary with screen scale, so these are deliberately coarse bounds.
             // Scale bounds with the sampled screen grid. Different phones and
             // display scaling can make the same aircraft occupy different pixel counts.
-            val maxComponentCount=max(160, redMask.size/110)
             val maxComponentWidth=max(30, cols/7)
             val maxComponentHeight=max(22, rows/6)
             val compact = count in 2..maxComponentCount &&
@@ -147,7 +156,7 @@ class LiveScreenDetector {
         // A compact aircraft-like red object AND the central game area are both
         // mandatory. Require repeat confirmation; movement is supporting evidence,
         // not a hard requirement, to tolerate paused/low-frame-rate capture.
-        val candidate = bestCount in 2..160 &&
+        val candidate = bestCount in 2..maxComponentCount &&
             bestAspect in 0.35..4.8 &&
             central >= 0.07 &&
             sceneScore >= 0.16
@@ -162,7 +171,17 @@ class LiveScreenDetector {
             confidence = (confidence - 0.22).coerceAtLeast(0.0)
         }
 
-        val live = confidence >= 0.60 && stableHits >= 4 && missHits < 2
+        // Permit a two-frame start only when the aircraft and central scene are
+        // unusually strong together. Ordinary candidates retain the three-frame
+        // confirmation, protecting against red UI elements and splash-screen noise.
+        val live = LiveStartPolicy.isConfirmed(
+            stableHits = stableHits,
+            missHits = missHits,
+            confidence = confidence,
+            centralScore = central,
+            sceneScore = sceneScore,
+            planeScore = planeScore
+        )
         return LiveScreenState(
             live, planeScore, central, sceneScore,
             bestX, bestY

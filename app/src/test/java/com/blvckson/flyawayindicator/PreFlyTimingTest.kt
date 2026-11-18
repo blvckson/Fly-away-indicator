@@ -32,7 +32,7 @@ class PreFlyTimingTest {
 
     @Test
     fun oneSignalCannotTriggerRed() {
-        val weak=PreFlySignals(trend=0.80,central=0.02,plane=0.02,movement=0.02)
+        val weak=PreFlySignals(trend=1.00,central=0.05,plane=0.05,movement=0.05)
         val candidate=PreFlyTiming.candidate(weak)
         assertFalse(PreFlyTiming.isEvidence(weak,candidate,0.80,0.10))
     }

@@ -44,6 +44,13 @@ class ScreenMonitorService : Service() {
     private var nextRound=1
     private val redReader=RedMultiplierReader()
     private lateinit var store:RoundRecordStore
+    private lateinit var indicatorTraceStore:IndicatorTraceStore
+    private var indicatorTraceActive=false
+    private var indicatorTraceRoundNumber=0
+    private var indicatorTraceStartMs=0L
+    private var lastPlaneWidthNorm=Double.NaN
+    private var lastPlaneHeightNorm=Double.NaN
+    private var lastPlaneAspect=Double.NaN
     private val thread=HandlerThread("FlyAwayCapture",Process.THREAD_PRIORITY_DISPLAY)
     private lateinit var handler:Handler
     private lateinit var main:Handler
@@ -116,6 +123,7 @@ class ScreenMonitorService : Service() {
     override fun onCreate(){
         super.onCreate()
         store=RoundRecordStore(this)
+        indicatorTraceStore=IndicatorTraceStore(this)
         nextRound=(store.all().maxOfOrNull{it.round}?:0)+1
         analysisThread=HandlerThread("FlyAwayRoundAnalysis",Process.THREAD_PRIORITY_BACKGROUND)
         analysisThread.start()
@@ -199,6 +207,26 @@ class ScreenMonitorService : Service() {
 
         val central=centralChange(lastFrame,frame)
         val planePresent = !state.planeX.isNaN() && !state.planeY.isNaN()
+        val planeWidthNorm=if(planePresent && state.planeWidthPx.isFinite()) state.planeWidthPx.toDouble()/w else null
+        val planeHeightNorm=if(planePresent && state.planeHeightPx.isFinite()) state.planeHeightPx.toDouble()/h else null
+        val planeAspect=if(planePresent && state.planeAspectRatio.isFinite()) state.planeAspectRatio.toDouble() else null
+        val geometryChange=if(planeWidthNorm!=null && planeHeightNorm!=null &&
+            lastPlaneWidthNorm.isFinite() && lastPlaneHeightNorm.isFinite()) {
+            ((abs(planeWidthNorm-lastPlaneWidthNorm)/max(0.002,lastPlaneWidthNorm))+
+                (abs(planeHeightNorm-lastPlaneHeightNorm)/max(0.002,lastPlaneHeightNorm)))/2.0
+        } else 0.0
+        val shapeChange=if(planeAspect!=null && lastPlaneAspect.isFinite())
+            (abs(planeAspect-lastPlaneAspect)/max(0.10,lastPlaneAspect)).coerceIn(0.0,1.0)
+        else 0.0
+        if(planeWidthNorm!=null && planeHeightNorm!=null) {
+            lastPlaneWidthNorm=planeWidthNorm
+            lastPlaneHeightNorm=planeHeightNorm
+            lastPlaneAspect=planeAspect ?: Double.NaN
+        } else {
+            lastPlaneWidthNorm=Double.NaN
+            lastPlaneHeightNorm=Double.NaN
+            lastPlaneAspect=Double.NaN
+        }
         val visualLive = state.isLive &&
             state.sceneScore >= 0.16 &&
             state.planeScore >= 0.08 &&
@@ -210,6 +238,8 @@ class ScreenMonitorService : Service() {
         val nowMs=System.currentTimeMillis()
         if(!endConfirmed) indicatorEndLatched=false
         if(endConfirmed){
+            // Store the end marker in the diagnostic trace before clearing round state.
+            finishIndicatorTrace("ocr_end_marker", (frameTimeMs-indicatorTraceStartMs).coerceAtLeast(0L))
             // End markers can remain visible for several captured frames. Clear the
             // warning once, then block re-arming until the end screen has passed.
             indicatorRoundActive=false
@@ -259,10 +289,21 @@ class ScreenMonitorService : Service() {
                 indicatorPreSinceMs=0L
                 indicatorLastFrameAtMs=0L
                 indicatorLastLiveAtMs=frameTimeMs
+                lastPlaneWidthNorm=Double.NaN
+                lastPlaneHeightNorm=Double.NaN
+                lastPlaneAspect=Double.NaN
                 recentChanges.clear()
                 lastMove=0.0
                 lastPlaneX=Float.NaN
                 lastPlaneY=Float.NaN
+                detector.resetTracking()
+                indicatorTraceRoundNumber++
+                indicatorTraceStartMs=frameTimeMs
+                indicatorTraceActive=true
+                val traceNumber=indicatorTraceRoundNumber
+                analysisHandler.post {
+                    indicatorTraceStore.beginRound(traceNumber,nowMs)
+                }
             }
         }else{
             indicatorLiveHits=0
@@ -344,6 +385,37 @@ class ScreenMonitorService : Service() {
                 (normalPreEvidence || strongShortRoundSignal) &&
                 (lastMove>=0.075 || central>=0.12 || indicatorTrend>=0.78)
 
+            if(indicatorTraceActive) {
+                val traceSample=IndicatorTraceSample(
+                    wallTimeMs=nowMs,
+                    elapsedMs=(frameTimeMs-indicatorTraceStartMs).coerceAtLeast(0L),
+                    frameDeltaMs=frameDeltaMs,
+                    globalChange=change,
+                    centralChange=central,
+                    planeScore=state.planeScore,
+                    planeXNorm=if(planePresent) state.planeX.toDouble()/w else null,
+                    planeYNorm=if(planePresent) state.planeY.toDouble()/h else null,
+                    planeWidthNorm=planeWidthNorm,
+                    planeHeightNorm=planeHeightNorm,
+                    planePixelCount=state.planePixelCount,
+                    planeAspectRatio=planeAspect,
+                    planeFillRatio=state.planeFillRatio.toDouble(),
+                    geometryChange=geometryChange,
+                    shapeChange=shapeChange,
+                    movementScore=lastMove,
+                    trend800Ms=standardTrend,
+                    trend250Ms=shortTrend,
+                    candidateScore=candidate,
+                    baselineScore=activeBaselineScore,
+                    preEvidence=preEvidence,
+                    red=indicatorPreDetected,
+                    ocrVerified=textVerifier.isVerified(),
+                    visualLive=visualLive,
+                    endConfirmed=endConfirmed
+                )
+                analysisHandler.post { indicatorTraceStore.append(traceSample) }
+            }
+
             if(preEvidence){
                 indicatorRoundHadActivity=true
                 if(indicatorPreSinceMs==0L) indicatorPreSinceMs=frameTimeMs
@@ -359,6 +431,7 @@ class ScreenMonitorService : Service() {
 
             // Reset on elapsed live-screen loss, not a frame count that changes with FPS.
             if(IndicatorSignalMath.shouldResetRound(frameTimeMs,indicatorLastLiveAtMs,3000L)){
+                finishIndicatorTrace("live_signal_lost_3s", (frameTimeMs-indicatorTraceStartMs).coerceAtLeast(0L))
                 indicatorRoundActive=false
                 indicatorLiveHits=0
                 indicatorLastLiveAtMs=0L
@@ -553,6 +626,14 @@ class ScreenMonitorService : Service() {
             total+=abs((ca and 255)-(cb and 255));n+=3
         }
         return total.toDouble()/max(1,n*255)
+    }
+
+    private fun finishIndicatorTrace(reason:String,elapsedMs:Long){
+        if(!indicatorTraceActive) return
+        indicatorTraceActive=false
+        if(::analysisHandler.isInitialized && ::indicatorTraceStore.isInitialized) {
+            analysisHandler.post { indicatorTraceStore.finishRound(reason,elapsedMs) }
+        }
     }
 
     private fun publish(status:String,pre:Boolean,statement:String){
@@ -772,6 +853,7 @@ class ScreenMonitorService : Service() {
 
     override fun onDestroy(){
         try{finishRound()}catch(_:Throwable){}
+        finishIndicatorTrace("service_stopped", (SystemClock.elapsedRealtime()-indicatorTraceStartMs).coerceAtLeast(0L))
         reader?.close();reader=null;projection?.stop();projection=null
         recorder?.release();recorder=null
         lastFrame?.recycle();lastFrame=null

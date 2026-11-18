@@ -1,13 +1,42 @@
 package com.blvckson.flyawayindicator
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class IndicatorPhaseMachineTest {
     @Test
-    fun detectorConfirmedLiveScreenStartsGreenWithoutAnotherTwoFrameGate() {
-        val machine = IndicatorPhaseMachine()
+    fun strongAviatorSceneCanConfirmGreenOnSecondFrame() {
+        assertTrue(LiveStartPolicy.isConfirmed(
+            stableHits = 2, missHits = 0, confidence = 0.40,
+            centralScore = 0.12, sceneScore = 0.21, planeScore = 0.15
+        ))
+    }
 
+    @Test
+    fun weakTwoFrameCandidateMustWaitForThirdConfirmation() {
+        assertFalse(LiveStartPolicy.isConfirmed(
+            stableHits = 2, missHits = 0, confidence = 0.40,
+            centralScore = 0.08, sceneScore = 0.17, planeScore = 0.10
+        ))
+        assertTrue(LiveStartPolicy.isConfirmed(
+            stableHits = 3, missHits = 0, confidence = 0.60,
+            centralScore = 0.08, sceneScore = 0.17, planeScore = 0.10
+        ))
+    }
+
+    @Test
+    fun missedFrameBlocksFastStart() {
+        assertFalse(LiveStartPolicy.isConfirmed(
+            stableHits = 2, missHits = 1, confidence = 0.60,
+            centralScore = 0.20, sceneScore = 0.30, planeScore = 0.30
+        ))
+    }
+
+    @Test
+    fun detectorConfirmedLiveScreenStartsGreenWithoutAnotherGate() {
+        val machine = IndicatorPhaseMachine()
         assertEquals(IndicatorPhase.BLACK, machine.phase)
         assertEquals(IndicatorPhase.GREEN, machine.observeLive(visualLive = true, endConfirmed = false))
     }
@@ -17,7 +46,6 @@ class IndicatorPhaseMachineTest {
         val machine = IndicatorPhaseMachine()
         machine.observeLive(visualLive = true, endConfirmed = false)
         machine.markPreFlyAway()
-
         assertEquals(IndicatorPhase.RED, machine.phase)
         assertEquals(IndicatorPhase.RED, machine.observeLive(visualLive = true, endConfirmed = false))
     }
@@ -27,7 +55,6 @@ class IndicatorPhaseMachineTest {
         val machine = IndicatorPhaseMachine()
         machine.observeLive(visualLive = true, endConfirmed = false)
         machine.markPreFlyAway()
-
         assertEquals(IndicatorPhase.RED, machine.observeLive(visualLive = false, endConfirmed = false))
         assertEquals(IndicatorPhase.RED, machine.observeLive(visualLive = false, endConfirmed = false))
         assertEquals(IndicatorPhase.BLACK, machine.observeLive(visualLive = false, endConfirmed = false))
@@ -38,14 +65,12 @@ class IndicatorPhaseMachineTest {
         val machine = IndicatorPhaseMachine()
         machine.observeLive(visualLive = true, endConfirmed = false)
         machine.markPreFlyAway()
-
         assertEquals(IndicatorPhase.BLACK, machine.observeLive(visualLive = false, endConfirmed = true))
     }
 
     @Test
     fun freshLiveEvidenceOverridesStaleOcrEndText() {
         val machine = IndicatorPhaseMachine()
-
         assertEquals(IndicatorPhase.GREEN, machine.observeLive(visualLive = true, endConfirmed = true))
     }
 
@@ -55,7 +80,6 @@ class IndicatorPhaseMachineTest {
         machine.observeLive(visualLive = true, endConfirmed = false)
         machine.markPreFlyAway()
         machine.observeLive(visualLive = false, endConfirmed = true)
-
         assertEquals(IndicatorPhase.BLACK, machine.phase)
         assertEquals(IndicatorPhase.GREEN, machine.observeLive(visualLive = true, endConfirmed = true))
     }

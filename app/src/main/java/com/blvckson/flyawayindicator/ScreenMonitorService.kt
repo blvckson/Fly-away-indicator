@@ -405,6 +405,7 @@ class ScreenMonitorService : Service() {
                     geometryChange=geometryChange,
                     shapeChange=shapeChange,
                     movementScore=lastMove,
+                    detectorMovementScore=state.planeMovementScore,
                     trend800Ms=standardTrend,
                     trend250Ms=shortTrend,
                     candidateScore=candidate,

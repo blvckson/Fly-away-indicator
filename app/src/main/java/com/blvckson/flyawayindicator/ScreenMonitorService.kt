@@ -258,6 +258,7 @@ class ScreenMonitorService : Service() {
             indicatorShortBaseline.clear()
             indicatorChanges.clear()
             indicatorTimedChanges.clear()
+            detector.resetTracking()
             indicatorRoundStartedAtMs=0L
             indicatorPreSinceMs=0L
             indicatorLastFrameAtMs=0L
@@ -298,7 +299,6 @@ class ScreenMonitorService : Service() {
                 lastMove=0.0
                 lastPlaneX=Float.NaN
                 lastPlaneY=Float.NaN
-                detector.resetTracking()
                 indicatorTraceRoundNumber++
                 indicatorTraceStartMs=frameTimeMs
                 indicatorTraceActive=true
@@ -451,6 +451,7 @@ class ScreenMonitorService : Service() {
                 indicatorTimedChanges.clear()
                 indicatorRoundStartedAtMs=0L
                 indicatorLastFrameAtMs=0L
+                detector.resetTracking()
                 publish("WAITING FOR NEXT ROUND",false,
                     "Live-round evidence ended for 3 seconds. Indicator reset and ready for the next round. Numeric trace folder: ${indicatorTraceStore.directoryPath()}")
             }

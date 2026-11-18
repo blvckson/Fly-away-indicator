@@ -40,6 +40,17 @@ internal object PreFlyTiming {
     private fun toPercent(value: Double): Int =
         (value.coerceIn(0.0, 1.0) * 100.0).toInt().coerceIn(0, 100)
 
+    /** Relative increase in recent frame changes; 0.5 is neutral. */
+    fun trend(samples: List<Double>): Double {
+        val values = samples.filter { it.isFinite() }.takeLast(8)
+        if (values.size < 2) return 0.5
+        val split = max(1, values.size / 2)
+        val earlier = values.take(split).average()
+        val recent = values.drop(split).average()
+        return ((recent - earlier) / max(0.012, earlier + 0.012) + 0.5)
+            .coerceIn(0.0, 1.0)
+    }
+
     fun medianBaseline(samples: List<Double>): Double {
         val sorted = samples.filter { it.isFinite() }.sorted()
         if (sorted.isEmpty()) return 0.0

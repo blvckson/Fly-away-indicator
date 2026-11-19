@@ -173,22 +173,17 @@ internal class MultiplierBehaviourTracker {
         sampleCount++
 
         if (baseline == null) {
+            val previousOpening = opening.lastOrNull()
+            val openingChange = previousOpening?.let { appearanceChange(it, appearance) } ?: 0.0
             opening.addLast(appearance)
             if (opening.size >= 4) baseline = average(opening)
-            lastState = MultiplierBehaviourState(true, 0.0, 1.0, sampleCount)
+            lastState = MultiplierBehaviourState(
+                true, 0.0, (1.0 - openingChange).coerceIn(0.0, 1.0), sampleCount
+            )
             return lastState
         }
 
-        val ref = baseline!!
-        val xShift = (abs(appearance.centerX - ref.centerX) / 0.055).coerceIn(0.0, 1.0)
-        val yShift = (abs(appearance.centerY - ref.centerY) / 0.055).coerceIn(0.0, 1.0)
-        val heightShift = (abs(appearance.fontHeight - ref.fontHeight) /
-            max(0.012, ref.fontHeight * 0.22)).coerceIn(0.0, 1.0)
-        val colourShift = (abs(appearance.inkLuminance - ref.inkLuminance) / 48.0).coerceIn(0.0, 1.0)
-        val redShift = (abs(appearance.inkRedRatio - ref.inkRedRatio) / 0.28).coerceIn(0.0, 1.0)
-        val contrastShift = (abs(appearance.contrast - ref.contrast) / 0.24).coerceIn(0.0, 1.0)
-        val change = (xShift * 0.18 + yShift * 0.20 + heightShift * 0.16 +
-            colourShift * 0.18 + redShift * 0.13 + contrastShift * 0.15).coerceIn(0.0, 1.0)
+        val change = appearanceChange(baseline!!, appearance)
 
         // Learn slow ordinary drift, but do not absorb a potentially meaningful change.
         if (change < 0.12) baseline = blend(ref, appearance, 0.035)
@@ -199,6 +194,18 @@ internal class MultiplierBehaviourTracker {
             samples = sampleCount
         )
         return lastState
+    }
+
+    private fun appearanceChange(ref: MultiplierAppearance, appearance: MultiplierAppearance): Double {
+        val xShift = (abs(appearance.centerX - ref.centerX) / 0.055).coerceIn(0.0, 1.0)
+        val yShift = (abs(appearance.centerY - ref.centerY) / 0.055).coerceIn(0.0, 1.0)
+        val heightShift = (abs(appearance.fontHeight - ref.fontHeight) /
+            max(0.012, ref.fontHeight * 0.22)).coerceIn(0.0, 1.0)
+        val colourShift = (abs(appearance.inkLuminance - ref.inkLuminance) / 48.0).coerceIn(0.0, 1.0)
+        val redShift = (abs(appearance.inkRedRatio - ref.inkRedRatio) / 0.28).coerceIn(0.0, 1.0)
+        val contrastShift = (abs(appearance.contrast - ref.contrast) / 0.24).coerceIn(0.0, 1.0)
+        return (xShift * 0.18 + yShift * 0.20 + heightShift * 0.16 +
+            colourShift * 0.18 + redShift * 0.13 + contrastShift * 0.15).coerceIn(0.0, 1.0)
     }
 
     private fun average(items: Iterable<MultiplierAppearance>): MultiplierAppearance {
@@ -330,6 +337,7 @@ internal object AviatorIdentityPolicy {
         gameControlsPresent: Boolean,
         multiplierBounds: MultiplierTextBounds?,
         multiplierSamples: Int,
+        multiplierStabilityScore: Double,
         aircraftBehaviourScore: Double,
         sceneScore: Double
     ): Boolean {
@@ -339,7 +347,8 @@ internal object AviatorIdentityPolicy {
             bounds.centerY in 0.10..0.60 &&
             bounds.height in 0.006..0.16
         val textIdentity = textVerified && multiplierPresent && expectedMultiplierRegion &&
-            (aviatorLabelPresent || gameControlsPresent) && multiplierSamples >= 2
+            (aviatorLabelPresent || gameControlsPresent) && multiplierSamples >= 2 &&
+            multiplierStabilityScore >= 0.55
         return textIdentity && aircraftBehaviourScore >= 0.48 && sceneScore >= 0.14
     }
 }

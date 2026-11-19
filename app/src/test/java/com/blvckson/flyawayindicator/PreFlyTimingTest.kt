@@ -111,13 +111,26 @@ class PreFlyTimingTest {
     }
 
     @Test
-    fun multiplierAppearanceCanCorroborateOtherPreFlySignals() {
+    fun multiplierAppearanceAloneCannotTriggerRed() {
         val signals = PreFlySignals(
             trend = 0.05, central = 0.0, plane = 0.0, movement = 0.0, multiplier = 0.85
         )
         assertEquals(1, PreFlyTiming.evidenceCount(signals))
         assertFalse(PreFlyTiming.isEvidence(
             signals, PreFlyTiming.candidate(signals), 0.8, 0.1,
+            baselineSampleCount = 4, roundFrameCount = 10, flightProgress = 0.5
+        ))
+    }
+
+    @Test
+    fun multiplierAppearanceCanCorroborateAnotherPreFlySignal() {
+        val signals = PreFlySignals(
+            trend = 0.70, central = 0.0, plane = 0.0, movement = 0.0, multiplier = 0.85
+        )
+        val candidate = PreFlyTiming.candidate(signals)
+        assertEquals(2, PreFlyTiming.evidenceCount(signals))
+        assertTrue(PreFlyTiming.isEvidence(
+            signals, candidate, 0.80, 0.10,
             baselineSampleCount = 4, roundFrameCount = 10, flightProgress = 0.5
         ))
     }

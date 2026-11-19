@@ -74,6 +74,7 @@ class LiveScreenDetector {
         var bestY = Float.NaN
         var bestAspect = 0.0
         val queue = IntArray(redMask.size)
+        val maxComponentCount=max(160, redMask.size/110)
         for (start in redMask.indices) {
             if (!redMask[start] || seen[start]) continue
             var head = 0
@@ -113,7 +114,6 @@ class LiveScreenDetector {
             // vary with screen scale, so these are deliberately coarse bounds.
             // Scale bounds with the sampled screen grid. Different phones and
             // display scaling can make the same aircraft occupy different pixel counts.
-            val maxComponentCount=max(160, redMask.size/110)
             val maxComponentWidth=max(30, cols/7)
             val maxComponentHeight=max(22, rows/6)
             val compact = count in 2..maxComponentCount &&

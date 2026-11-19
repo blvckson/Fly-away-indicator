@@ -8,7 +8,9 @@ internal data class PreFlySignals(
     val trend: Double,
     val central: Double,
     val plane: Double,
-    val movement: Double
+    val movement: Double,
+    /** Appearance-only multiplier signal; numeric multiplier values are never supplied. */
+    val multiplier: Double = 0.0
 )
 
 internal data class PreFlySignalScores(
@@ -16,16 +18,18 @@ internal data class PreFlySignalScores(
     val central: Int,
     val aircraft: Int,
     val movement: Int,
+    val multiplier: Int,
     val combined: Int
 ) {
     fun diagnosticLine(): String =
-        "Signal indices /100 — trend $trend, central $central, aircraft $aircraft, movement $movement; combined $combined."
+        "Signal indices /100 — trend $trend, central $central, aircraft $aircraft, movement $movement, multiplier appearance $multiplier; combined $combined."
 }
 
 internal object PreFlyTiming {
     fun candidate(signals: PreFlySignals): Double =
-        (signals.trend * 0.38 + signals.central * 0.24 +
-            signals.plane * 0.16 + signals.movement * 0.22).coerceIn(0.0, 1.0)
+        (signals.trend * 0.34 + signals.central * 0.20 +
+            signals.plane * 0.16 + signals.movement * 0.18 +
+            signals.multiplier * 0.12).coerceIn(0.0, 1.0)
 
     /** Report all four independent input levels on the same 0..100 scale. */
     fun signalScores(signals: PreFlySignals): PreFlySignalScores =
@@ -34,6 +38,7 @@ internal object PreFlyTiming {
             central = toPercent(signals.central),
             aircraft = toPercent(signals.plane),
             movement = toPercent(signals.movement),
+            multiplier = toPercent(signals.multiplier),
             combined = toPercent(candidate(signals))
         )
 
@@ -55,7 +60,8 @@ internal object PreFlyTiming {
         (if (signals.trend >= 0.62) 1 else 0) +
             (if (signals.central >= 0.13) 1 else 0) +
             (if (signals.plane >= 0.10) 1 else 0) +
-            (if (signals.movement >= 0.11) 1 else 0)
+            (if (signals.movement >= 0.11) 1 else 0) +
+        (if (signals.multiplier >= 0.12) 1 else 0)
 
     fun isEvidence(
         signals: PreFlySignals,
@@ -70,11 +76,13 @@ internal object PreFlyTiming {
         val centralEvidence = signals.central >= 0.13
         val planeEvidence = signals.plane >= 0.10
         val movementEvidence = signals.movement >= 0.11
+        val multiplierEvidence = signals.multiplier >= 0.12
         val count = evidenceCount(signals)
         val pairedEvidence =
-            (trendEvidence && (centralEvidence || movementEvidence || planeEvidence)) ||
-                (centralEvidence && movementEvidence) ||
-                (movementEvidence && planeEvidence)
+            (trendEvidence && (centralEvidence || movementEvidence || planeEvidence || multiplierEvidence)) ||
+                (centralEvidence && (movementEvidence || multiplierEvidence)) ||
+                (movementEvidence && (planeEvidence || multiplierEvidence)) ||
+                (planeEvidence && multiplierEvidence)
 
         val baselineRise = candidate - baselineScore
 
@@ -89,6 +97,7 @@ internal object PreFlyTiming {
             signals.plane >= 0.10 &&
             signals.movement >= 0.11 &&
             count >= 3 &&
+            (multiplierEvidence || count >= 4) &&
             candidate >= max(0.38, baselineScore * 1.25) &&
             baselineRise >= 0.075 &&
             flightProgress >= 0.08 &&
@@ -121,7 +130,8 @@ internal object PreFlyTiming {
             (if (signals.trend >= 0.58) 1 else 0) +
                 (if (signals.central >= 0.10) 1 else 0) +
                 (if (signals.plane >= 0.08) 1 else 0) +
-                (if (signals.movement >= 0.08) 1 else 0)
+                (if (signals.movement >= 0.08) 1 else 0) +
+                (if (signals.multiplier >= 0.10) 1 else 0)
         return candidate - baselineScore < 0.035 && earlyHints < 2
     }
 

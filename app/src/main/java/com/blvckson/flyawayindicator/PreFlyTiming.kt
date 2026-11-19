@@ -62,7 +62,9 @@ internal object PreFlyTiming {
         candidate: Double,
         smoothedScore: Double,
         baselineScore: Double,
-        baselineSampleCount: Int = 4
+        baselineSampleCount: Int = 4,
+        roundFrameCount: Int = 8,
+        flightProgress: Double = 1.0
     ): Boolean {
         val trendEvidence = signals.trend >= 0.62
         val centralEvidence = signals.central >= 0.13
@@ -76,16 +78,28 @@ internal object PreFlyTiming {
 
         val baselineRise = candidate - baselineScore
 
-        // With only two opening samples, allow a very strong short-round path,
-        // but demand three independent channels and a larger baseline departure.
-        val fastShortRoundEvidence = baselineSampleCount == 2 &&
-            signals.trend >= 0.70 &&
+        // The launch animation produces simultaneous movement and visual change.
+        // Do not evaluate the short-round fallback until four real intra-round
+        // observations exist, and require measurable movement away from the
+        // aircraft's own opening position.
+        val fastShortRoundEvidence = baselineSampleCount in 2..4 &&
+            roundFrameCount >= 5 &&
+            signals.trend >= 0.76 &&
+            signals.central >= 0.13 &&
+            signals.plane >= 0.10 &&
+            signals.movement >= 0.11 &&
             count >= 3 &&
             candidate >= max(0.38, baselineScore * 1.25) &&
             baselineRise >= 0.075 &&
+            flightProgress >= 0.08 &&
             smoothedScore >= max(0.42, baselineScore + 0.06)
 
+        // The normal path additionally requires the aircraft to have advanced
+        // beyond the take-off region. This is a relative path-progress measure,
+        // not a fixed multiplier or a far-edge position cutoff.
         val normalEvidence = baselineSampleCount >= 3 &&
+            roundFrameCount >= 8 &&
+            flightProgress >= 0.18 &&
             candidate >= max(0.34, baselineScore * 1.28) &&
             baselineRise >= 0.06 &&
             smoothedScore >= max(0.40, baselineScore + 0.05) &&

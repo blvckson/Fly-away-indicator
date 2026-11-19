@@ -78,6 +78,7 @@ class AviatorVisualBehaviourTest {
             multiplierSamples = 5,
             multiplierStabilityScore = 0.9,
             aircraftBehaviourScore = 0.9,
+            aircraftMovementScore = 0.10,
             sceneScore = 0.9
         ))
     }
@@ -92,6 +93,7 @@ class AviatorVisualBehaviourTest {
             multiplierSamples = 5,
             multiplierStabilityScore = 0.9,
             aircraftBehaviourScore = 0.2,
+            aircraftMovementScore = 0.10,
             sceneScore = 0.9
         ))
     }
@@ -107,6 +109,7 @@ class AviatorVisualBehaviourTest {
             multiplierSamples = 3,
             multiplierStabilityScore = 0.20,
             aircraftBehaviourScore = 0.9,
+            aircraftMovementScore = 0.10,
             sceneScore = 0.9
         ))
     }
@@ -132,6 +135,23 @@ class AviatorVisualBehaviourTest {
             multiplierSamples = 5,
             multiplierStabilityScore = 0.9,
             aircraftBehaviourScore = 0.9,
+            aircraftMovementScore = 0.10,
+            sceneScore = 0.9
+        ))
+    }
+
+    @Test
+    fun staticRedObjectCannotConfirmAnAviatorFlightScene() {
+        assertFalse(AviatorIdentityPolicy.isConfirmed(
+            textVerified = true,
+            multiplierPresent = true,
+            aviatorLabelPresent = true,
+            gameControlsPresent = true,
+            multiplierBounds = MultiplierTextBounds(0.20, 0.28, 0.80, 0.32),
+            multiplierSamples = 5,
+            multiplierStabilityScore = 0.9,
+            aircraftBehaviourScore = 0.9,
+            aircraftMovementScore = 0.0,
             sceneScore = 0.9
         ))
     }
@@ -147,6 +167,7 @@ class AviatorVisualBehaviourTest {
             multiplierSamples = 2,
             multiplierStabilityScore = 0.9,
             aircraftBehaviourScore = 0.65,
+            aircraftMovementScore = 0.10,
             sceneScore = 0.30
         ))
     }

@@ -201,9 +201,9 @@ class ScreenMonitorService : Service() {
 
         val central=centralChange(lastFrame,frame)
         val planePresent = !state.planeX.isNaN() && !state.planeY.isNaN()
+        // The detector's verified identity latch survives occasional OCR misses;
+        // ongoing live status is then sustained by aircraft and scene evidence.
         val visualLive = state.isLive &&
-            textEvidence.verified &&
-            multiplierBehaviour.present &&
             multiplierBehaviour.samples >= 2 &&
             state.sceneScore >= 0.16 &&
             state.planeScore >= 0.08 &&

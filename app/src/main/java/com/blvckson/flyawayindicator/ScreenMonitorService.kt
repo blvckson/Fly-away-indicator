@@ -180,7 +180,9 @@ class ScreenMonitorService : Service() {
     private fun processFrame(frame:Bitmap,w:Int,h:Int,density:Int){
         textVerifier.inspect(frame)
         val textEvidence=textVerifier.evidence()
-        val multiplierAppearance=MultiplierAppearanceSampler.sample(frame,textEvidence.multiplierBounds)
+        val multiplierAppearance=if(multiplierBehaviourTracker.needsSample(textEvidence.observedAtMillis)) {
+            MultiplierAppearanceSampler.sample(frame,textEvidence.multiplierBounds)
+        } else null
         var multiplierBehaviour=multiplierBehaviourTracker.observe(
             multiplierAppearance,textEvidence.observedAtMillis
         )

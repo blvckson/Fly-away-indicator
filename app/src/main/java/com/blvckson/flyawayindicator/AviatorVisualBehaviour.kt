@@ -134,6 +134,7 @@ internal class MultiplierBehaviourTracker {
     private var baseline: MultiplierAppearance? = null
     private var lastObservedAt = Long.MIN_VALUE
     private var sampleCount = 0
+    private var lastAppearance: MultiplierAppearance? = null
     private var lastState = MultiplierBehaviourState()
 
     fun reset() {
@@ -141,7 +142,21 @@ internal class MultiplierBehaviourTracker {
         baseline = null
         lastObservedAt = Long.MIN_VALUE
         sampleCount = 0
+        lastAppearance = null
         lastState = MultiplierBehaviourState()
+    }
+
+    /** Seed the next round from its first verified display, excluding lobby-to-live change. */
+    fun startRoundBaseline(): MultiplierBehaviourState {
+        opening.clear()
+        baseline = lastAppearance
+        lastState = MultiplierBehaviourState(
+            present = lastAppearance != null,
+            changeScore = 0.0,
+            stabilityScore = 1.0,
+            samples = sampleCount
+        )
+        return lastState
     }
 
     fun observe(appearance: MultiplierAppearance?, observedAtMillis: Long): MultiplierBehaviourState {
@@ -151,6 +166,7 @@ internal class MultiplierBehaviourTracker {
         }
         if (observedAtMillis <= 0L || observedAtMillis == lastObservedAt) return lastState
         lastObservedAt = observedAtMillis
+        lastAppearance = appearance
         sampleCount++
 
         if (baseline == null) {

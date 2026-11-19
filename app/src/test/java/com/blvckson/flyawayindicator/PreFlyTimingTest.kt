@@ -12,11 +12,11 @@ class PreFlyTimingTest {
     }
 
     @Test
-    fun candidatePreservesBuild74SignalWeights() {
+    fun candidateIncludesTheNewMultiplierAppearanceChannel() {
         val score = PreFlyTiming.candidate(
             PreFlySignals(trend = 0.70, central = 0.50, plane = 0.80, movement = 0.40)
         )
-        assertEquals(0.602, score, 0.000001)
+        assertEquals(0.538, score, 0.000001)
     }
 
     @Test
@@ -28,6 +28,7 @@ class PreFlyTimingTest {
         assertEquals(100, scores.central)
         assertEquals(100, scores.aircraft)
         assertEquals(100, scores.movement)
+        assertEquals(100, scores.multiplier)
         assertEquals(100, scores.combined)
     }
 
@@ -37,7 +38,7 @@ class PreFlyTimingTest {
             PreFlySignals(trend = 0.5, central = 0.0, plane = 0.0, movement = 0.0)
         )
         assertEquals(50, scores.trend)
-        assertEquals(19, scores.combined)
+        assertEquals(17, scores.combined)
     }
 
     @Test
@@ -94,6 +95,30 @@ class PreFlyTimingTest {
         assertTrue(PreFlyTiming.isEvidence(
             strong, candidate, 0.55, 0.30,
             baselineSampleCount = 4, roundFrameCount = 8, flightProgress = 0.20
+        ))
+    }
+
+    @Test
+    fun multiplierAppearanceIsAnIndependentPreFlySignal() {
+        val quiet = PreFlyTiming.candidate(
+            PreFlySignals(trend = 0.0, central = 0.0, plane = 0.0, movement = 0.0)
+        )
+        val appearanceChange = PreFlyTiming.candidate(
+            PreFlySignals(trend = 0.0, central = 0.0, plane = 0.0, movement = 0.0, multiplier = 1.0)
+        )
+        assertEquals(0.0, quiet, 0.000001)
+        assertEquals(0.12, appearanceChange, 0.000001)
+    }
+
+    @Test
+    fun multiplierAppearanceCanCorroborateOtherPreFlySignals() {
+        val signals = PreFlySignals(
+            trend = 0.05, central = 0.0, plane = 0.0, movement = 0.0, multiplier = 0.85
+        )
+        assertEquals(1, PreFlyTiming.evidenceCount(signals))
+        assertFalse(PreFlyTiming.isEvidence(
+            signals, PreFlyTiming.candidate(signals), 0.8, 0.1,
+            baselineSampleCount = 4, roundFrameCount = 10, flightProgress = 0.5
         ))
     }
 

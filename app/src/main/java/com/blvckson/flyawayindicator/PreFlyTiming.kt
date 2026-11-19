@@ -3,7 +3,7 @@ package com.blvckson.flyawayindicator
 import kotlin.math.max
 import kotlin.math.min
 
-/** Build-74 weighted signal blend. Inputs are independent 0..1 signal indices. */
+/** Build-74 adaptive signal blend plus a separate multiplier-appearance channel. */
 internal data class PreFlySignals(
     val trend: Double,
     val central: Double,
@@ -31,7 +31,7 @@ internal object PreFlyTiming {
             signals.plane * 0.16 + signals.movement * 0.18 +
             signals.multiplier * 0.12).coerceIn(0.0, 1.0)
 
-    /** Report all four independent input levels on the same 0..100 scale. */
+    /** Report all five independent input levels on the same 0..100 scale. */
     fun signalScores(signals: PreFlySignals): PreFlySignalScores =
         PreFlySignalScores(
             trend = toPercent(signals.trend),

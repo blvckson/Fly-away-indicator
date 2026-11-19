@@ -22,7 +22,9 @@ class PreFlyTimingTest {
     @Test
     fun eachSignalHasAnIndependentZeroToOneHundredIndex() {
         val scores = PreFlyTiming.signalScores(
-            PreFlySignals(trend = 1.0, central = 1.0, plane = 1.0, movement = 1.0)
+            PreFlySignals(
+                trend = 1.0, central = 1.0, plane = 1.0, movement = 1.0, multiplier = 1.0
+            )
         )
         assertEquals(100, scores.trend)
         assertEquals(100, scores.central)

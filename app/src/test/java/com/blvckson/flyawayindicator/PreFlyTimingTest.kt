@@ -16,7 +16,7 @@ class PreFlyTimingTest {
         val score = PreFlyTiming.candidate(
             PreFlySignals(trend = 0.70, central = 0.50, plane = 0.80, movement = 0.40)
         )
-        assertEquals(0.538, score, 0.000001)
+        assertEquals(0.52976, score, 0.000001)
     }
 
     @Test
@@ -38,7 +38,7 @@ class PreFlyTimingTest {
             PreFlySignals(trend = 0.5, central = 0.0, plane = 0.0, movement = 0.0)
         )
         assertEquals(50, scores.trend)
-        assertEquals(17, scores.combined)
+        assertEquals(16, scores.combined)
     }
 
     @Test

@@ -101,6 +101,7 @@ class AviatorVisualBehaviourTest {
             multiplierPresent = true,
             aviatorLabelPresent = true,
             gameControlsPresent = true,
+            multiplierBounds = MultiplierTextBounds(0.20, 0.28, 0.80, 0.32),
             multiplierSamples = 5,
             multiplierStabilityScore = 0.9,
             aircraftBehaviourScore = 0.2,

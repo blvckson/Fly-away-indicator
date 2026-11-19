@@ -103,6 +103,9 @@ class ScreenMonitorService : Service() {
     private var indicatorFrames=0
     private var indicatorBaselineScore=0.0
     private var indicatorLastFrameAtMs=0L
+    private var indicatorStartPlaneX=Float.NaN
+    private var indicatorStartPlaneY=Float.NaN
+    private var indicatorFlightProgress=0.0
     private var indicatorRoundHadActivity=false
     private var lastIndicatorSignalReport="Signal indices /100 — awaiting first live-round sample."
     private var latchedRedSignalReport=""
@@ -215,6 +218,9 @@ class ScreenMonitorService : Service() {
             indicatorFrames=0
             indicatorLastFrameAtMs=0L
             indicatorBaselineScore=0.0
+            indicatorStartPlaneX=if(planePresent) state.planeX else Float.NaN
+            indicatorStartPlaneY=if(planePresent) state.planeY else Float.NaN
+            indicatorFlightProgress=0.0
             indicatorRoundHadActivity=false
             lastIndicatorSignalReport="Signal indices /100 — collecting opening samples."
             latchedRedSignalReport=""
@@ -235,6 +241,9 @@ class ScreenMonitorService : Service() {
             indicatorFrames=0
             indicatorLastFrameAtMs=0L
             indicatorBaselineScore=0.0
+            indicatorStartPlaneX=Float.NaN
+            indicatorStartPlaneY=Float.NaN
+            indicatorFlightProgress=0.0
             indicatorRoundHadActivity=false
             lastIndicatorSignalReport="Signal indices /100 — waiting for the next round."
             latchedRedSignalReport=""
@@ -258,9 +267,11 @@ class ScreenMonitorService : Service() {
             // channels; it is a round-start transition, not a pre-fly signal.
             val roundJustStarted = previousIndicatorPhase==IndicatorPhase.BLACK &&
                 currentIndicatorPhase==IndicatorPhase.GREEN
-            val indicatorFrameChange=if(roundJustStarted) 0.0 else change
             val indicatorCentralChange=if(roundJustStarted) 0.0 else central
-            indicatorChanges.addLast(indicatorFrameChange)
+            // Do not insert a synthetic zero for the lobby-to-live transition:
+            // it biases the early/late average and can manufacture a rising trend.
+            // Trend begins only after real within-round frame differences arrive.
+            if(!roundJustStarted) indicatorChanges.addLast(change)
             while(indicatorChanges.size>10)indicatorChanges.removeFirst()
 
             // Use monotonic capture cadence, not wall-clock time. This keeps the
@@ -277,7 +288,7 @@ class ScreenMonitorService : Service() {
             // Keep Build 74's adaptive, multi-signal model. Use the recent per-round
             // trend and a robust four-sample opening baseline so short rounds do not
             // spend too long calibrating before the late visual change is evaluated.
-            val indicatorTrend=changeTrend(indicatorChanges)
+            val indicatorTrend=if(indicatorChanges.size>=4) changeTrend(indicatorChanges) else 0.5
             val signals=PreFlySignals(
                 trend=indicatorTrend,
                 central=indicatorCentralChange,
@@ -304,13 +315,29 @@ class ScreenMonitorService : Service() {
 
             val scores=PreFlyTiming.signalScores(signals)
             lastIndicatorSignalReport=scores.diagnosticLine()
+            // Measure actual aircraft travel from this round's first confirmed
+            // plane position. Normal rounds need more progress than the short-round
+            // fallback, preventing ordinary take-off movement from arming RED.
+            if(planePresent && indicatorStartPlaneX.isNaN()){
+                indicatorStartPlaneX=state.planeX
+                indicatorStartPlaneY=state.planeY
+            }
+            if(planePresent && !indicatorStartPlaneX.isNaN() && !indicatorStartPlaneY.isNaN()){
+                val dx=(state.planeX-indicatorStartPlaneX).toDouble()
+                val dy=(state.planeY-indicatorStartPlaneY).toDouble()
+                val screenDiagonal=sqrt(w.toDouble()*w.toDouble()+h.toDouble()*h.toDouble()).coerceAtLeast(1.0)
+                val progress=(sqrt(dx*dx+dy*dy)/screenDiagonal).coerceIn(0.0,1.0)
+                indicatorFlightProgress=max(indicatorFlightProgress,progress)
+            }
             val independentSignals=PreFlyTiming.evidenceCount(signals)
             val preEvidence=baselineReady && PreFlyTiming.isEvidence(
                 signals=signals,
                 candidate=candidate,
                 smoothedScore=indicatorPreScore,
                 baselineScore=indicatorBaselineScore,
-                baselineSampleCount=baselineSampleCount
+                baselineSampleCount=baselineSampleCount,
+                roundFrameCount=indicatorFrames,
+                flightProgress=indicatorFlightProgress
             )
             indicatorPreHold=PreFlyTiming.updatedHold(indicatorPreHold,preEvidence)
 

@@ -36,24 +36,42 @@ internal class IndicatorPhaseMachine(
         private set
 
     private var missingLiveFrames = 0
+    // OCR can retain "FLEW AWAY" for a short period after the next round appears.
+    // Consume each end-marker episode once so it resets the old round without
+    // repeatedly pushing the newly detected round back to BLACK.
+    private var endMarkerLatched = false
 
     init {
         require(missingFramesToReset >= 1)
     }
 
     fun observeLive(visualLive: Boolean, endConfirmed: Boolean): IndicatorPhase {
+        if (!endConfirmed) endMarkerLatched = false
+
+        // An end marker must end an already active round even if the detector
+        // still sees stale aircraft/UI pixels in that same captured frame.
+        if (phase != IndicatorPhase.BLACK && endConfirmed && !endMarkerLatched) {
+            endMarkerLatched = true
+            resetPhase()
+            return phase
+        }
+
+        // In BLACK, fresh live evidence wins over stale OCR from the preceding
+        // round. Latch that OCR episode so it cannot flicker the new round.
+        if (phase == IndicatorPhase.BLACK) {
+            if (visualLive) {
+                missingLiveFrames = 0
+                phase = IndicatorPhase.GREEN
+                if (endConfirmed) endMarkerLatched = true
+            }
+            return phase
+        }
+
         if (visualLive) {
             missingLiveFrames = 0
-            if (phase == IndicatorPhase.BLACK) {
-                phase = IndicatorPhase.GREEN
-            }
-        } else if (phase != IndicatorPhase.BLACK) {
-            if (endConfirmed) {
-                reset()
-            } else {
-                missingLiveFrames++
-                if (missingLiveFrames >= missingFramesToReset) reset()
-            }
+        } else {
+            missingLiveFrames++
+            if (missingLiveFrames >= missingFramesToReset) resetPhase()
         }
         return phase
     }
@@ -64,6 +82,11 @@ internal class IndicatorPhaseMachine(
     }
 
     fun reset() {
+        resetPhase()
+        endMarkerLatched = false
+    }
+
+    private fun resetPhase() {
         phase = IndicatorPhase.BLACK
         missingLiveFrames = 0
     }

@@ -10,7 +10,6 @@ class AviatorVisualBehaviourTest {
     fun steadyMultiplierAppearanceDoesNotLookLikeAChange() {
         val tracker = MultiplierBehaviourTracker()
         val steady = MultiplierAppearance(
-            centerX = 0.50,
             centerY = 0.30,
             fontHeight = 0.035,
             inkLuminance = 235.0,
@@ -27,18 +26,30 @@ class AviatorVisualBehaviourTest {
     @Test
     fun multiplierPositionFontAndColourChangesAreDetected() {
         val tracker = MultiplierBehaviourTracker()
-        val steady = MultiplierAppearance(0.50, 0.30, 0.035, 235.0, 0.08, 0.72)
+        val steady = MultiplierAppearance(0.30, 0.035, 235.0, 0.08, 0.72)
         for (i in 1L..4L) tracker.observe(steady, i * 300L)
-        val changed = MultiplierAppearance(0.50, 0.36, 0.045, 175.0, 0.58, 0.35)
+        val changed = MultiplierAppearance(0.36, 0.045, 175.0, 0.58, 0.35)
         val state = tracker.observe(changed, 1500L)
         assertTrue(state.changeScore >= 0.12)
         assertTrue(state.stabilityScore < 0.88)
     }
 
     @Test
+    fun ordinaryDigitCountWidthChangeIsNotRepresentedAsAppearanceChange() {
+        // MultiplierAppearance has no horizontal position or width field. Two
+        // identical display styles therefore score identically even when the OCR
+        // text box could have a different digit count/width.
+        val tracker = MultiplierBehaviourTracker()
+        val style = MultiplierAppearance(0.30, 0.035, 235.0, 0.08, 0.72)
+        for (i in 1L..4L) tracker.observe(style, i * 300L)
+        val state = tracker.observe(style.copy(), 1500L)
+        assertEquals(0.0, state.changeScore, 0.000001)
+    }
+
+    @Test
     fun repeatedCaptureOfTheSameOcrSampleDoesNotFakeExtraHistory() {
         val tracker = MultiplierBehaviourTracker()
-        val sample = MultiplierAppearance(0.5, 0.3, 0.04, 230.0, 0.1, 0.7)
+        val sample = MultiplierAppearance(0.3, 0.04, 230.0, 0.1, 0.7)
         val first = tracker.observe(sample, 1000L)
         val repeated = tracker.observe(sample, 1000L)
         assertEquals(first.samples, repeated.samples)
@@ -47,7 +58,7 @@ class AviatorVisualBehaviourTest {
     @Test
     fun roundStartReseedsMultiplierBaselineWithoutLosingIdentitySamples() {
         val tracker = MultiplierBehaviourTracker()
-        val first = MultiplierAppearance(0.5, 0.3, 0.04, 230.0, 0.1, 0.7)
+        val first = MultiplierAppearance(0.3, 0.04, 230.0, 0.1, 0.7)
         for (i in 1L..3L) tracker.observe(first, i * 300L)
         val before = tracker.observe(first, 1200L)
         val seeded = tracker.startRoundBaseline()
@@ -117,9 +128,9 @@ class AviatorVisualBehaviourTest {
     @Test
     fun unstableOpeningMultiplierAppearanceHasLowIdentityStability() {
         val tracker = MultiplierBehaviourTracker()
-        tracker.observe(MultiplierAppearance(0.50, 0.30, 0.035, 235.0, 0.08, 0.72), 300L)
+        tracker.observe(MultiplierAppearance(0.30, 0.035, 235.0, 0.08, 0.72), 300L)
         val changed = tracker.observe(
-            MultiplierAppearance(0.50, 0.36, 0.045, 175.0, 0.58, 0.35), 600L
+            MultiplierAppearance(0.36, 0.045, 175.0, 0.58, 0.35), 600L
         )
         assertTrue(changed.stabilityScore < 0.55)
     }

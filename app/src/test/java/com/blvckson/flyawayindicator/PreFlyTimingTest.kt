@@ -60,6 +60,44 @@ class PreFlyTimingTest {
     }
 
     @Test
+    fun launchFramesCannotTriggerTheShortRoundFallback() {
+        val strong = PreFlySignals(trend = 0.90, central = 0.80, plane = 0.70, movement = 0.80)
+        val candidate = PreFlyTiming.candidate(strong)
+        assertFalse(PreFlyTiming.isEvidence(
+            strong, candidate, 0.80, 0.50,
+            baselineSampleCount = 2, roundFrameCount = 3, flightProgress = 0.20
+        ))
+        assertFalse(PreFlyTiming.isEvidence(
+            strong, candidate, 0.80, 0.50,
+            baselineSampleCount = 2, roundFrameCount = 5, flightProgress = 0.04
+        ))
+    }
+
+    @Test
+    fun strongShortRoundEvidenceRemainsAvailableAfterLaunchSamples() {
+        val strong = PreFlySignals(trend = 0.90, central = 0.80, plane = 0.70, movement = 0.80)
+        val candidate = PreFlyTiming.candidate(strong)
+        assertTrue(PreFlyTiming.isEvidence(
+            strong, candidate, 0.80, 0.50,
+            baselineSampleCount = 2, roundFrameCount = 5, flightProgress = 0.09
+        ))
+    }
+
+    @Test
+    fun normalEvidenceWaitsForMeasuredFlightProgress() {
+        val strong = PreFlySignals(trend = 0.72, central = 0.20, plane = 0.50, movement = 0.20)
+        val candidate = PreFlyTiming.candidate(strong)
+        assertFalse(PreFlyTiming.isEvidence(
+            strong, candidate, 0.55, 0.30,
+            baselineSampleCount = 4, roundFrameCount = 8, flightProgress = 0.10
+        ))
+        assertTrue(PreFlyTiming.isEvidence(
+            strong, candidate, 0.55, 0.30,
+            baselineSampleCount = 4, roundFrameCount = 8, flightProgress = 0.20
+        ))
+    }
+
+    @Test
     fun oneSignalCannotTriggerRed() {
         val weak = PreFlySignals(trend = 1.0, central = 0.05, plane = 0.05, movement = 0.05)
         val candidate = PreFlyTiming.candidate(weak)

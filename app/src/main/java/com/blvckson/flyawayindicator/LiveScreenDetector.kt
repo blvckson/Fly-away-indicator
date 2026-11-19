@@ -27,6 +27,7 @@ class LiveScreenDetector {
     private var stableHits = 0
     private var missHits = 0
     private var confidence = 0.0
+    private var identityLatched = false
     private val aircraftBehaviourTracker = AircraftBehaviourTracker()
 
     /** Clear aircraft confirmation history after a completed round. */
@@ -36,6 +37,7 @@ class LiveScreenDetector {
         stableHits = 0
         missHits = 0
         confidence = 0.0
+        identityLatched = false
         aircraftBehaviourTracker.reset()
     }
 
@@ -179,7 +181,7 @@ class LiveScreenDetector {
         // A compact aircraft-like red object AND the central game area are both
         // mandatory. Require repeat confirmation; movement is supporting evidence,
         // not a hard requirement, to tolerate paused/low-frame-rate capture.
-        val identityConfirmed = AviatorIdentityPolicy.isConfirmed(
+        val freshIdentityEvidence = AviatorIdentityPolicy.isConfirmed(
             textVerified = textEvidence.verified,
             multiplierPresent = textEvidence.multiplierPresent,
             aviatorLabelPresent = textEvidence.aviatorLabelPresent,
@@ -188,6 +190,10 @@ class LiveScreenDetector {
             aircraftBehaviourScore = aircraftBehaviour.score,
             sceneScore = sceneScore
         )
+        if (freshIdentityEvidence) identityLatched = true
+        // Once the screen has been positively identified, tolerate an occasional
+        // missed OCR frame; plane/scene tracking still has to remain live.
+        val identityConfirmed = identityLatched
         val candidate = bestCount in 2..maxComponentCount &&
             bestAspect in 0.35..4.8 &&
             central >= 0.07 &&

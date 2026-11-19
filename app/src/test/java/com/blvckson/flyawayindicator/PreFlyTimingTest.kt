@@ -125,7 +125,7 @@ class PreFlyTimingTest {
     @Test
     fun multiplierAppearanceCanCorroborateAnotherPreFlySignal() {
         val signals = PreFlySignals(
-            trend = 0.70, central = 0.0, plane = 0.0, movement = 0.0, multiplier = 0.85
+            trend = 0.75, central = 0.0, plane = 0.0, movement = 0.0, multiplier = 0.85
         )
         val candidate = PreFlyTiming.candidate(signals)
         assertEquals(2, PreFlyTiming.evidenceCount(signals))

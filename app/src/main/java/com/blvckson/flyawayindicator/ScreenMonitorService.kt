@@ -186,7 +186,9 @@ class ScreenMonitorService : Service() {
         var multiplierBehaviour=multiplierBehaviourTracker.observe(
             multiplierAppearance,textEvidence.observedAtMillis
         )
-        val state=detector.inspect(frame,textEvidence,multiplierBehaviour.samples)
+        val state=detector.inspect(
+            frame,textEvidence,multiplierBehaviour.samples,multiplierBehaviour.stabilityScore
+        )
         val change=lastFrame?.let{frameDifference(it,frame)} ?: 0.0
         recentChanges.addLast(change)
         while(recentChanges.size>24)recentChanges.removeFirst()

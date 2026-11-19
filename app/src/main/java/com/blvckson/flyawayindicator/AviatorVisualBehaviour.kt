@@ -41,18 +41,25 @@ internal data class MultiplierAppearance(
 )
 
 /**
- * Samples the pixels underneath the OCR-identified multiplier text. Width and digit
- * content are deliberately excluded so ordinary numerical growth is not a signal.
+ * Samples a fixed, font-height-scaled window around the OCR-located multiplier.
+ * Full text width and digit count are deliberately excluded from the measurement.
  */
 internal object MultiplierAppearanceSampler {
     fun sample(frame: Bitmap, bounds: MultiplierTextBounds?): MultiplierAppearance? {
         if (bounds == null || !bounds.isValid() || frame.width < 2 || frame.height < 2) return null
-        val left = (bounds.left * frame.width).toInt().coerceIn(0, frame.width - 1)
+        // Use a fixed-width probe centred on the OCR box. Its width is derived
+        // from text height, not the full box width, so adding multiplier digits
+        // cannot enlarge the sampled region or become an implicit growth signal.
         val top = (bounds.top * frame.height).toInt().coerceIn(0, frame.height - 1)
-        val right = (bounds.right * frame.width).toInt().coerceIn(left + 1, frame.width)
         val bottom = (bounds.bottom * frame.height).toInt().coerceIn(top + 1, frame.height)
-        val padX = max(3, (right - left) / 5)
-        val padY = max(3, (bottom - top) / 3)
+        val textHeight = (bottom - top).coerceAtLeast(2)
+        val probeWidth = (textHeight * 1.5).toInt().coerceAtLeast(4)
+        val probeCenterX = (bounds.centerX * frame.width).toInt()
+        val rawLeft = probeCenterX - probeWidth / 2
+        val left = rawLeft.coerceIn(0, (frame.width - 2).coerceAtLeast(0))
+        val right = (left + probeWidth).coerceAtMost(frame.width).coerceAtLeast(left + 1)
+        val padX = max(3, probeWidth / 5)
+        val padY = max(3, textHeight / 3)
         val outerLeft = max(0, left - padX)
         val outerTop = max(0, top - padY)
         val outerRight = min(frame.width, right + padX)

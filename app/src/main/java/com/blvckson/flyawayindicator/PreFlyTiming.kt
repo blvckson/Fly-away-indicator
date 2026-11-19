@@ -45,7 +45,9 @@ internal object PreFlyTiming {
         )
 
     private fun toPercent(value: Double): Int =
-        (value.coerceIn(0.0, 1.0) * 100.0).toInt().coerceIn(0, 100)
+        // Tiny epsilon prevents a mathematically exact 100% blend from flooring
+        // to 99 because of binary floating-point representation.
+        (value.coerceIn(0.0, 1.0) * 100.0 + 1e-9).toInt().coerceIn(0, 100)
 
     fun medianBaseline(samples: List<Double>): Double {
         val sorted = samples.filter { it.isFinite() }.sorted()

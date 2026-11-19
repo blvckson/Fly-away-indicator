@@ -181,7 +181,7 @@ class ScreenMonitorService : Service() {
         textVerifier.inspect(frame)
         val textEvidence=textVerifier.evidence()
         val multiplierAppearance=MultiplierAppearanceSampler.sample(frame,textEvidence.multiplierBounds)
-        val multiplierBehaviour=multiplierBehaviourTracker.observe(
+        var multiplierBehaviour=multiplierBehaviourTracker.observe(
             multiplierAppearance,textEvidence.observedAtMillis
         )
         val state=detector.inspect(frame,textEvidence,multiplierBehaviour.samples)
@@ -235,6 +235,7 @@ class ScreenMonitorService : Service() {
             latchedRedSignalReport=""
             indicatorBaseline.clear()
             indicatorChanges.clear()
+            multiplierBehaviour=multiplierBehaviourTracker.startRoundBaseline()
             recentChanges.clear()
             lastMove=0.0
             lastPlaneX=Float.NaN

@@ -27,8 +27,10 @@ internal data class PreFlySignalScores(
 
 internal object PreFlyTiming {
     fun candidate(signals: PreFlySignals): Double =
-        (signals.trend * 0.34 + signals.central * 0.20 +
-            signals.plane * 0.16 + signals.movement * 0.18 +
+        // Preserve the pre-existing Build 74 signal proportions in 88% of the
+        // score and reserve 12% for multiplier-display appearance behaviour.
+        (signals.trend * 0.3344 + signals.central * 0.2112 +
+            signals.plane * 0.1408 + signals.movement * 0.1936 +
             signals.multiplier * 0.12).coerceIn(0.0, 1.0)
 
     /** Report all five independent input levels on the same 0..100 scale. */

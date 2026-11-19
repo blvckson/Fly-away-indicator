@@ -191,6 +191,7 @@ class LiveScreenDetector {
             multiplierSamples = multiplierSamples,
             multiplierStabilityScore = multiplierStabilityScore,
             aircraftBehaviourScore = aircraftBehaviour.score,
+            aircraftMovementScore = aircraftBehaviour.movementScore,
             sceneScore = sceneScore
         )
         if (freshIdentityEvidence) identityLatched = true

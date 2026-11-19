@@ -33,7 +33,6 @@ internal data class AviatorTextEvidence(
 )
 
 internal data class MultiplierAppearance(
-    val centerX: Double,
     val centerY: Double,
     val fontHeight: Double,
     val inkLuminance: Double,
@@ -101,7 +100,6 @@ internal object MultiplierAppearanceSampler {
         }
         val inkMean = inkLuminance / inkCount
         return MultiplierAppearance(
-            centerX = bounds.centerX,
             centerY = bounds.centerY,
             fontHeight = bounds.height,
             inkLuminance = inkMean,
@@ -183,7 +181,8 @@ internal class MultiplierBehaviourTracker {
             return lastState
         }
 
-        val change = appearanceChange(baseline!!, appearance)
+        val ref = baseline!!
+        val change = appearanceChange(ref, appearance)
 
         // Learn slow ordinary drift, but do not absorb a potentially meaningful change.
         if (change < 0.12) baseline = blend(ref, appearance, 0.035)
@@ -197,22 +196,23 @@ internal class MultiplierBehaviourTracker {
     }
 
     private fun appearanceChange(ref: MultiplierAppearance, appearance: MultiplierAppearance): Double {
-        val xShift = (abs(appearance.centerX - ref.centerX) / 0.055).coerceIn(0.0, 1.0)
         val yShift = (abs(appearance.centerY - ref.centerY) / 0.055).coerceIn(0.0, 1.0)
         val heightShift = (abs(appearance.fontHeight - ref.fontHeight) /
             max(0.012, ref.fontHeight * 0.22)).coerceIn(0.0, 1.0)
         val colourShift = (abs(appearance.inkLuminance - ref.inkLuminance) / 48.0).coerceIn(0.0, 1.0)
         val redShift = (abs(appearance.inkRedRatio - ref.inkRedRatio) / 0.28).coerceIn(0.0, 1.0)
         val contrastShift = (abs(appearance.contrast - ref.contrast) / 0.24).coerceIn(0.0, 1.0)
-        return (xShift * 0.18 + yShift * 0.20 + heightShift * 0.16 +
-            colourShift * 0.18 + redShift * 0.13 + contrastShift * 0.15).coerceIn(0.0, 1.0)
+        // Exclude horizontal text-box width/centering: digit count can grow
+        // naturally as the multiplier rises and must not become a prediction cue.
+        return (yShift * 0.24 + heightShift * 0.18 +
+            colourShift * 0.22 + redShift * 0.16 + contrastShift * 0.20)
+            .coerceIn(0.0, 1.0)
     }
 
     private fun average(items: Iterable<MultiplierAppearance>): MultiplierAppearance {
         val values = items.toList()
         val n = values.size.coerceAtLeast(1)
         return MultiplierAppearance(
-            values.sumOf { it.centerX } / n,
             values.sumOf { it.centerY } / n,
             values.sumOf { it.fontHeight } / n,
             values.sumOf { it.inkLuminance } / n,
@@ -223,7 +223,6 @@ internal class MultiplierBehaviourTracker {
 
     private fun blend(a: MultiplierAppearance, b: MultiplierAppearance, amount: Double) =
         MultiplierAppearance(
-            a.centerX + (b.centerX - a.centerX) * amount,
             a.centerY + (b.centerY - a.centerY) * amount,
             a.fontHeight + (b.fontHeight - a.fontHeight) * amount,
             a.inkLuminance + (b.inkLuminance - a.inkLuminance) * amount,

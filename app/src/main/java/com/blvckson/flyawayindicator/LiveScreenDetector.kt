@@ -156,8 +156,8 @@ class LiveScreenDetector {
         }
         val aircraftBehaviour = if (!bestX.isNaN() && !bestY.isNaN()) {
             aircraftBehaviourTracker.observe(
-                x = bestX / w,
-                y = bestY / h,
+                x = bestX.toDouble() / w,
+                y = bestY.toDouble() / h,
                 width = bestWidthNorm,
                 height = bestHeightNorm,
                 aspect = bestAspect

@@ -41,7 +41,7 @@ class LiveScreenDetector {
         aircraftBehaviourTracker.reset()
     }
 
-    fun inspect(
+    internal fun inspect(
         frame: Bitmap,
         textEvidence: AviatorTextEvidence,
         multiplierSamples: Int,

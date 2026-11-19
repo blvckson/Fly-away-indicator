@@ -38,6 +38,7 @@ class ScreenMonitorService : Service() {
     private var recorder:RoundVideoRecorder?=null
     private val detector=LiveScreenDetector()
     private val textVerifier=AviatorTextVerifier()
+    private val multiplierBehaviourTracker=MultiplierBehaviourTracker()
     private val indicatorPhaseMachine=IndicatorPhaseMachine()
     private val videoAnalyser=VideoRoundAnalyser()
     private lateinit var analysisThread:HandlerThread
@@ -178,7 +179,12 @@ class ScreenMonitorService : Service() {
 
     private fun processFrame(frame:Bitmap,w:Int,h:Int,density:Int){
         textVerifier.inspect(frame)
-        val state=detector.inspect(frame)
+        val textEvidence=textVerifier.evidence()
+        val multiplierAppearance=MultiplierAppearanceSampler.sample(frame,textEvidence.multiplierBounds)
+        val multiplierBehaviour=multiplierBehaviourTracker.observe(
+            multiplierAppearance,textEvidence.observedAtMillis
+        )
+        val state=detector.inspect(frame,textEvidence,multiplierBehaviour.samples)
         val change=lastFrame?.let{frameDifference(it,frame)} ?: 0.0
         recentChanges.addLast(change)
         while(recentChanges.size>24)recentChanges.removeFirst()
@@ -196,6 +202,9 @@ class ScreenMonitorService : Service() {
         val central=centralChange(lastFrame,frame)
         val planePresent = !state.planeX.isNaN() && !state.planeY.isNaN()
         val visualLive = state.isLive &&
+            textEvidence.verified &&
+            multiplierBehaviour.present &&
+            multiplierBehaviour.samples >= 2 &&
             state.sceneScore >= 0.16 &&
             state.planeScore >= 0.08 &&
             state.multiplierVisualScore >= 0.07
@@ -203,7 +212,7 @@ class ScreenMonitorService : Service() {
         // The aircraft/game detector already confirms consecutive live frames.
         // Use one phase controller so no second counter or OCR cooldown delays
         // BLACK -> GREEN, and so stale end-text cannot block the following round.
-        val endConfirmed=textVerifier.isEndConfirmed()
+        val endConfirmed=textEvidence.endConfirmed
         val previousIndicatorPhase=indicatorPhaseMachine.phase
         indicatorPhaseMachine.observeLive(visualLive,endConfirmed)
         val currentIndicatorPhase=indicatorPhaseMachine.phase
@@ -254,6 +263,7 @@ class ScreenMonitorService : Service() {
             lastPlaneX=Float.NaN
             lastPlaneY=Float.NaN
             detector.resetTracking()
+            multiplierBehaviourTracker.reset()
         }
 
         indicatorRoundActive=currentIndicatorPhase!=IndicatorPhase.BLACK
@@ -289,11 +299,16 @@ class ScreenMonitorService : Service() {
             // trend and a robust four-sample opening baseline so short rounds do not
             // spend too long calibrating before the late visual change is evaluated.
             val indicatorTrend=if(indicatorChanges.size>=4) changeTrend(indicatorChanges) else 0.5
+            val aircraftSignal=(state.planeScore*0.65+
+                state.aircraftBehaviourScore*0.35).coerceIn(0.0,1.0)
+            val movementSignal=(lastMove*0.55+
+                state.movementScore*0.45).coerceIn(0.0,1.0)
             val signals=PreFlySignals(
                 trend=indicatorTrend,
                 central=indicatorCentralChange,
-                plane=state.planeScore,
-                movement=lastMove
+                plane=aircraftSignal,
+                movement=movementSignal,
+                multiplier=multiplierBehaviour.changeScore
             )
             val candidate=PreFlyTiming.candidate(signals)
 

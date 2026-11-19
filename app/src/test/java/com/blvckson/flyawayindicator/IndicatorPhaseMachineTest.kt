@@ -75,6 +75,36 @@ class IndicatorPhaseMachineTest {
     }
 
     @Test
+    fun activeRoundEndOverridesStaleLivePixelsImmediately() {
+        val machine = IndicatorPhaseMachine()
+        machine.observeLive(visualLive = true, endConfirmed = false)
+        machine.markPreFlyAway()
+        assertEquals(
+            IndicatorPhase.BLACK,
+            machine.observeLive(visualLive = true, endConfirmed = true)
+        )
+    }
+
+    @Test
+    fun staleEndMarkerDoesNotFlickerTheNewRoundBackToBlack() {
+        val machine = IndicatorPhaseMachine()
+        machine.observeLive(visualLive = true, endConfirmed = false)
+        machine.markPreFlyAway()
+        assertEquals(
+            IndicatorPhase.BLACK,
+            machine.observeLive(visualLive = false, endConfirmed = true)
+        )
+        assertEquals(
+            IndicatorPhase.GREEN,
+            machine.observeLive(visualLive = true, endConfirmed = true)
+        )
+        assertEquals(
+            IndicatorPhase.GREEN,
+            machine.observeLive(visualLive = true, endConfirmed = true)
+        )
+    }
+
+    @Test
     fun aNewRoundCanTurnGreenAfterThePreviousRoundResets() {
         val machine = IndicatorPhaseMachine()
         machine.observeLive(visualLive = true, endConfirmed = false)

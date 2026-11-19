@@ -339,6 +339,7 @@ internal object AviatorIdentityPolicy {
         multiplierSamples: Int,
         multiplierStabilityScore: Double,
         aircraftBehaviourScore: Double,
+        aircraftMovementScore: Double,
         sceneScore: Double
     ): Boolean {
         val bounds = multiplierBounds
@@ -349,6 +350,7 @@ internal object AviatorIdentityPolicy {
         val textIdentity = textVerified && multiplierPresent && expectedMultiplierRegion &&
             (aviatorLabelPresent || gameControlsPresent) && multiplierSamples >= 2 &&
             multiplierStabilityScore >= 0.55
-        return textIdentity && aircraftBehaviourScore >= 0.48 && sceneScore >= 0.14
+        return textIdentity && aircraftBehaviourScore >= 0.48 &&
+            aircraftMovementScore >= 0.015 && sceneScore >= 0.14
     }
 }

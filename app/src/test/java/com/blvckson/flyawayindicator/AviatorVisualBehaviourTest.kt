@@ -74,6 +74,7 @@ class AviatorVisualBehaviourTest {
             multiplierPresent = false,
             aviatorLabelPresent = true,
             gameControlsPresent = true,
+            multiplierBounds = MultiplierTextBounds(0.20, 0.28, 0.80, 0.32),
             multiplierSamples = 5,
             aircraftBehaviourScore = 0.9,
             sceneScore = 0.9
@@ -94,12 +95,27 @@ class AviatorVisualBehaviourTest {
     }
 
     @Test
+    fun multiplierTextOutsideTheExpectedDisplayRegionIsRejected() {
+        assertFalse(AviatorIdentityPolicy.isConfirmed(
+            textVerified = true,
+            multiplierPresent = true,
+            aviatorLabelPresent = true,
+            gameControlsPresent = true,
+            multiplierBounds = MultiplierTextBounds(0.05, 0.80, 0.45, 0.84),
+            multiplierSamples = 5,
+            aircraftBehaviourScore = 0.9,
+            sceneScore = 0.9
+        ))
+    }
+
+    @Test
     fun aviatorIdentityRequiresVerifiedTextMultiplierAndPlaneBehaviour() {
         assertTrue(AviatorIdentityPolicy.isConfirmed(
             textVerified = true,
             multiplierPresent = true,
             aviatorLabelPresent = false,
             gameControlsPresent = true,
+            multiplierBounds = MultiplierTextBounds(0.20, 0.28, 0.80, 0.32),
             multiplierSamples = 2,
             aircraftBehaviourScore = 0.65,
             sceneScore = 0.30

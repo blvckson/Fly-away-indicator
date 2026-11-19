@@ -143,7 +143,7 @@ class AviatorTextVerifier {
 
     fun isEndConfirmed(now: Long = System.currentTimeMillis()): Boolean = now <= endedUntil
 
-    fun evidence(now: Long = System.currentTimeMillis()): AviatorTextEvidence =
+    internal fun evidence(now: Long = System.currentTimeMillis()): AviatorTextEvidence =
         latestEvidence.copy(verified = isVerified(now), endConfirmed = isEndConfirmed(now))
 
     fun status(): String = lastResult

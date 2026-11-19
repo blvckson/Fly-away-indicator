@@ -186,6 +186,7 @@ class LiveScreenDetector {
             multiplierPresent = textEvidence.multiplierPresent,
             aviatorLabelPresent = textEvidence.aviatorLabelPresent,
             gameControlsPresent = textEvidence.gameControlsPresent,
+            multiplierBounds = textEvidence.multiplierBounds,
             multiplierSamples = multiplierSamples,
             aircraftBehaviourScore = aircraftBehaviour.score,
             sceneScore = sceneScore

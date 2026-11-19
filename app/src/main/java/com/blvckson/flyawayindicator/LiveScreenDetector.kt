@@ -11,7 +11,9 @@ data class LiveScreenState(
     val multiplierVisualScore: Double,
     val sceneScore: Double,
     val planeX: Float = Float.NaN,
-    val planeY: Float = Float.NaN
+    val planeY: Float = Float.NaN,
+    val aircraftBehaviourScore: Double = 0.0,
+    val movementScore: Double = 0.0
 )
 
 /**
@@ -25,6 +27,7 @@ class LiveScreenDetector {
     private var stableHits = 0
     private var missHits = 0
     private var confidence = 0.0
+    private val aircraftBehaviourTracker = AircraftBehaviourTracker()
 
     /** Clear aircraft confirmation history after a completed round. */
     fun resetTracking() {
@@ -33,9 +36,14 @@ class LiveScreenDetector {
         stableHits = 0
         missHits = 0
         confidence = 0.0
+        aircraftBehaviourTracker.reset()
     }
 
-    fun inspect(frame: Bitmap): LiveScreenState {
+    fun inspect(
+        frame: Bitmap,
+        textEvidence: AviatorTextEvidence,
+        multiplierSamples: Int
+    ): LiveScreenState {
         val w = frame.width
         val h = frame.height
         // Use a denser scan so a small red plane on a portrait phone is not
@@ -73,6 +81,8 @@ class LiveScreenDetector {
         var bestX = Float.NaN
         var bestY = Float.NaN
         var bestAspect = 0.0
+        var bestWidthNorm = 0.0
+        var bestHeightNorm = 0.0
         val queue = IntArray(redMask.size)
         val maxComponentCount=max(160, redMask.size/110)
         for (start in redMask.indices) {
@@ -130,6 +140,8 @@ class LiveScreenDetector {
                 bestX = cx
                 bestY = cy
                 bestAspect = aspect
+                bestWidthNorm = (bw * step).toDouble() / w
+                bestHeightNorm = (bh * step).toDouble() / h
             }
         }
 
@@ -138,6 +150,17 @@ class LiveScreenDetector {
             val d = sqrt((bestX - lastPlaneX) * (bestX - lastPlaneX) +
                 (bestY - lastPlaneY) * (bestY - lastPlaneY))
             movementScore = (d / (w * 0.025)).coerceIn(0.0, 1.0)
+        }
+        val aircraftBehaviour = if (!bestX.isNaN() && !bestY.isNaN()) {
+            aircraftBehaviourTracker.observe(
+                x = bestX / w,
+                y = bestY / h,
+                width = bestWidthNorm,
+                height = bestHeightNorm,
+                aspect = bestAspect
+            )
+        } else {
+            aircraftBehaviourTracker.miss()
         }
         if (!bestX.isNaN()) {
             lastPlaneX = bestX
@@ -156,10 +179,20 @@ class LiveScreenDetector {
         // A compact aircraft-like red object AND the central game area are both
         // mandatory. Require repeat confirmation; movement is supporting evidence,
         // not a hard requirement, to tolerate paused/low-frame-rate capture.
+        val identityConfirmed = AviatorIdentityPolicy.isConfirmed(
+            textVerified = textEvidence.verified,
+            multiplierPresent = textEvidence.multiplierPresent,
+            aviatorLabelPresent = textEvidence.aviatorLabelPresent,
+            gameControlsPresent = textEvidence.gameControlsPresent,
+            multiplierSamples = multiplierSamples,
+            aircraftBehaviourScore = aircraftBehaviour.score,
+            sceneScore = sceneScore
+        )
         val candidate = bestCount in 2..maxComponentCount &&
             bestAspect in 0.35..4.8 &&
             central >= 0.07 &&
-            sceneScore >= 0.16
+            sceneScore >= 0.16 &&
+            identityConfirmed
 
         if (candidate) {
             stableHits = (stableHits + 1).coerceAtMost(6)
@@ -184,7 +217,8 @@ class LiveScreenDetector {
         )
         return LiveScreenState(
             live, planeScore, central, sceneScore,
-            bestX, bestY
+            bestX, bestY, aircraftBehaviour.score,
+            max(movementScore, aircraftBehaviour.movementScore)
         )
     }
 

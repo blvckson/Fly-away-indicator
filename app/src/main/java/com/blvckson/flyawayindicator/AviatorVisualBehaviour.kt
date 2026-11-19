@@ -159,13 +159,16 @@ internal class MultiplierBehaviourTracker {
         return lastState
     }
 
+    fun needsSample(observedAtMillis: Long): Boolean =
+        observedAtMillis > 0L && observedAtMillis != lastObservedAt
+
     fun observe(appearance: MultiplierAppearance?, observedAtMillis: Long): MultiplierBehaviourState {
+        if (observedAtMillis <= 0L || observedAtMillis == lastObservedAt) return lastState
+        lastObservedAt = observedAtMillis
         if (appearance == null) {
             lastState = MultiplierBehaviourState(false, 0.0, 0.0, sampleCount)
             return lastState
         }
-        if (observedAtMillis <= 0L || observedAtMillis == lastObservedAt) return lastState
-        lastObservedAt = observedAtMillis
         lastAppearance = appearance
         sampleCount++
 

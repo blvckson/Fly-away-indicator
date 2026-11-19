@@ -76,6 +76,7 @@ class AviatorVisualBehaviourTest {
             gameControlsPresent = true,
             multiplierBounds = MultiplierTextBounds(0.20, 0.28, 0.80, 0.32),
             multiplierSamples = 5,
+            multiplierStabilityScore = 0.9,
             aircraftBehaviourScore = 0.9,
             sceneScore = 0.9
         ))
@@ -92,6 +93,31 @@ class AviatorVisualBehaviourTest {
             aircraftBehaviourScore = 0.2,
             sceneScore = 0.9
         ))
+    }
+
+    @Test
+    fun unstableMultiplierPlacementOrAppearanceCannotConfirmTheScreen() {
+        assertFalse(AviatorIdentityPolicy.isConfirmed(
+            textVerified = true,
+            multiplierPresent = true,
+            aviatorLabelPresent = true,
+            gameControlsPresent = true,
+            multiplierBounds = MultiplierTextBounds(0.20, 0.28, 0.80, 0.32),
+            multiplierSamples = 3,
+            multiplierStabilityScore = 0.20,
+            aircraftBehaviourScore = 0.9,
+            sceneScore = 0.9
+        ))
+    }
+
+    @Test
+    fun unstableOpeningMultiplierAppearanceHasLowIdentityStability() {
+        val tracker = MultiplierBehaviourTracker()
+        tracker.observe(MultiplierAppearance(0.50, 0.30, 0.035, 235.0, 0.08, 0.72), 300L)
+        val changed = tracker.observe(
+            MultiplierAppearance(0.50, 0.36, 0.045, 175.0, 0.58, 0.35), 600L
+        )
+        assertTrue(changed.stabilityScore < 0.55)
     }
 
     @Test
@@ -117,6 +143,7 @@ class AviatorVisualBehaviourTest {
             gameControlsPresent = true,
             multiplierBounds = MultiplierTextBounds(0.20, 0.28, 0.80, 0.32),
             multiplierSamples = 2,
+            multiplierStabilityScore = 0.9,
             aircraftBehaviourScore = 0.65,
             sceneScore = 0.30
         ))

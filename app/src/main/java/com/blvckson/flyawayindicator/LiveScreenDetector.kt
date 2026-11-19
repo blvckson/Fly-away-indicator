@@ -179,9 +179,8 @@ class LiveScreenDetector {
         val sceneScore = (planeScore * 0.48 + central * 0.42 +
             brightScore.coerceIn(0.0, 1.0) * 0.10).coerceIn(0.0, 1.0)
 
-        // A compact aircraft-like red object AND the central game area are both
-        // mandatory. Require repeat confirmation; movement is supporting evidence,
-        // not a hard requirement, to tolerate paused/low-frame-rate capture.
+        // A compact aircraft-like object, a verified multiplier display and
+        // sustained aircraft movement must corroborate the central game scene.
         val freshIdentityEvidence = AviatorIdentityPolicy.isConfirmed(
             textVerified = textEvidence.verified,
             multiplierPresent = textEvidence.multiplierPresent,

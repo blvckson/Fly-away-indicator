@@ -44,7 +44,8 @@ class LiveScreenDetector {
     fun inspect(
         frame: Bitmap,
         textEvidence: AviatorTextEvidence,
-        multiplierSamples: Int
+        multiplierSamples: Int,
+        multiplierStabilityScore: Double
     ): LiveScreenState {
         val w = frame.width
         val h = frame.height
@@ -188,6 +189,7 @@ class LiveScreenDetector {
             gameControlsPresent = textEvidence.gameControlsPresent,
             multiplierBounds = textEvidence.multiplierBounds,
             multiplierSamples = multiplierSamples,
+            multiplierStabilityScore = multiplierStabilityScore,
             aircraftBehaviourScore = aircraftBehaviour.score,
             sceneScore = sceneScore
         )

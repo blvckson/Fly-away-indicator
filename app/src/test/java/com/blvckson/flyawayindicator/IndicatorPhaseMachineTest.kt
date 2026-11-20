@@ -51,6 +51,54 @@ class IndicatorPhaseMachineTest {
     }
 
     @Test
+    fun redAlertAutomaticallyDisappearsAfterItsBriefDisplayWindow() {
+        val machine = IndicatorPhaseMachine(redVisibleDurationMs = 1_200L)
+        machine.observeLive(visualLive = true, endConfirmed = false, nowMs = 1_000L)
+        machine.markPreFlyAway(nowMs = 2_000L)
+
+        assertEquals(
+            IndicatorPhase.RED,
+            machine.observeLive(visualLive = true, endConfirmed = false, nowMs = 3_199L)
+        )
+        assertEquals(
+            IndicatorPhase.BLACK,
+            machine.observeLive(visualLive = true, endConfirmed = false, nowMs = 3_200L)
+        )
+    }
+
+    @Test
+    fun hiddenRedDoesNotImmediatelyTurnGreenAgainDuringTheSameRound() {
+        val machine = IndicatorPhaseMachine(redVisibleDurationMs = 1_200L)
+        machine.observeLive(visualLive = true, endConfirmed = false, nowMs = 1_000L)
+        machine.markPreFlyAway(nowMs = 2_000L)
+
+        assertEquals(
+            IndicatorPhase.BLACK,
+            machine.observeLive(visualLive = true, endConfirmed = false, nowMs = 3_200L)
+        )
+        assertEquals(
+            IndicatorPhase.BLACK,
+            machine.observeLive(visualLive = true, endConfirmed = false, nowMs = 3_300L)
+        )
+        assertEquals(
+            IndicatorPhase.BLACK,
+            machine.observeLive(visualLive = false, endConfirmed = false, nowMs = 3_400L)
+        )
+        assertEquals(
+            IndicatorPhase.BLACK,
+            machine.observeLive(visualLive = false, endConfirmed = false, nowMs = 3_500L)
+        )
+        assertEquals(
+            IndicatorPhase.BLACK,
+            machine.observeLive(visualLive = false, endConfirmed = false, nowMs = 3_600L)
+        )
+        assertEquals(
+            IndicatorPhase.GREEN,
+            machine.observeLive(visualLive = true, endConfirmed = false, nowMs = 3_700L)
+        )
+    }
+
+    @Test
     fun threeConsecutiveMissingFramesReturnRedToBlack() {
         val machine = IndicatorPhaseMachine()
         machine.observeLive(visualLive = true, endConfirmed = false)

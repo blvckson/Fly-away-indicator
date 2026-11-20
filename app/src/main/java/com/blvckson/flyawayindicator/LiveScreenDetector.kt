@@ -11,7 +11,9 @@ data class LiveScreenState(
     val multiplierVisualScore: Double,
     val sceneScore: Double,
     val planeX: Float = Float.NaN,
-    val planeY: Float = Float.NaN
+    val planeY: Float = Float.NaN,
+    val aircraftBehaviourScore: Double = 0.0,
+    val movementScore: Double = 0.0
 )
 
 /**
@@ -25,8 +27,26 @@ class LiveScreenDetector {
     private var stableHits = 0
     private var missHits = 0
     private var confidence = 0.0
+    private var identityLatched = false
+    private val aircraftBehaviourTracker = AircraftBehaviourTracker()
 
-    fun inspect(frame: Bitmap): LiveScreenState {
+    /** Clear aircraft confirmation history after a completed round. */
+    fun resetTracking() {
+        lastPlaneX = Float.NaN
+        lastPlaneY = Float.NaN
+        stableHits = 0
+        missHits = 0
+        confidence = 0.0
+        identityLatched = false
+        aircraftBehaviourTracker.reset()
+    }
+
+    internal fun inspect(
+        frame: Bitmap,
+        textEvidence: AviatorTextEvidence,
+        multiplierSamples: Int,
+        multiplierStabilityScore: Double
+    ): LiveScreenState {
         val w = frame.width
         val h = frame.height
         // Use a denser scan so a small red plane on a portrait phone is not
@@ -64,7 +84,10 @@ class LiveScreenDetector {
         var bestX = Float.NaN
         var bestY = Float.NaN
         var bestAspect = 0.0
+        var bestWidthNorm = 0.0
+        var bestHeightNorm = 0.0
         val queue = IntArray(redMask.size)
+        val maxComponentCount=max(160, redMask.size/110)
         for (start in redMask.indices) {
             if (!redMask[start] || seen[start]) continue
             var head = 0
@@ -104,7 +127,6 @@ class LiveScreenDetector {
             // vary with screen scale, so these are deliberately coarse bounds.
             // Scale bounds with the sampled screen grid. Different phones and
             // display scaling can make the same aircraft occupy different pixel counts.
-            val maxComponentCount=max(160, redMask.size/110)
             val maxComponentWidth=max(30, cols/7)
             val maxComponentHeight=max(22, rows/6)
             val compact = count in 2..maxComponentCount &&
@@ -121,6 +143,8 @@ class LiveScreenDetector {
                 bestX = cx
                 bestY = cy
                 bestAspect = aspect
+                bestWidthNorm = (bw * step).toDouble() / w
+                bestHeightNorm = (bh * step).toDouble() / h
             }
         }
 
@@ -129,6 +153,17 @@ class LiveScreenDetector {
             val d = sqrt((bestX - lastPlaneX) * (bestX - lastPlaneX) +
                 (bestY - lastPlaneY) * (bestY - lastPlaneY))
             movementScore = (d / (w * 0.025)).coerceIn(0.0, 1.0)
+        }
+        val aircraftBehaviour = if (!bestX.isNaN() && !bestY.isNaN()) {
+            aircraftBehaviourTracker.observe(
+                x = bestX.toDouble() / w,
+                y = bestY.toDouble() / h,
+                width = bestWidthNorm,
+                height = bestHeightNorm,
+                aspect = bestAspect
+            )
+        } else {
+            aircraftBehaviourTracker.miss()
         }
         if (!bestX.isNaN()) {
             lastPlaneX = bestX
@@ -144,13 +179,29 @@ class LiveScreenDetector {
         val sceneScore = (planeScore * 0.48 + central * 0.42 +
             brightScore.coerceIn(0.0, 1.0) * 0.10).coerceIn(0.0, 1.0)
 
-        // A compact aircraft-like red object AND the central game area are both
-        // mandatory. Require repeat confirmation; movement is supporting evidence,
-        // not a hard requirement, to tolerate paused/low-frame-rate capture.
-        val candidate = bestCount in 2..160 &&
+        // A compact aircraft-like object, a verified multiplier display and
+        // sustained aircraft movement must corroborate the central game scene.
+        val freshIdentityEvidence = AviatorIdentityPolicy.isConfirmed(
+            textVerified = textEvidence.verified,
+            multiplierPresent = textEvidence.multiplierPresent,
+            aviatorLabelPresent = textEvidence.aviatorLabelPresent,
+            gameControlsPresent = textEvidence.gameControlsPresent,
+            multiplierBounds = textEvidence.multiplierBounds,
+            multiplierSamples = multiplierSamples,
+            multiplierStabilityScore = multiplierStabilityScore,
+            aircraftBehaviourScore = aircraftBehaviour.score,
+            aircraftMovementScore = aircraftBehaviour.movementScore,
+            sceneScore = sceneScore
+        )
+        if (freshIdentityEvidence) identityLatched = true
+        // Once the screen has been positively identified, tolerate an occasional
+        // missed OCR frame; plane/scene tracking still has to remain live.
+        val identityConfirmed = identityLatched
+        val candidate = bestCount in 2..maxComponentCount &&
             bestAspect in 0.35..4.8 &&
             central >= 0.07 &&
-            sceneScore >= 0.16
+            sceneScore >= 0.16 &&
+            identityConfirmed
 
         if (candidate) {
             stableHits = (stableHits + 1).coerceAtMost(6)
@@ -162,10 +213,21 @@ class LiveScreenDetector {
             confidence = (confidence - 0.22).coerceAtLeast(0.0)
         }
 
-        val live = confidence >= 0.60 && stableHits >= 4 && missHits < 2
+        // Permit a two-frame start only when the aircraft and central scene are
+        // unusually strong together. Ordinary candidates retain the three-frame
+        // confirmation, protecting against red UI elements and splash-screen noise.
+        val live = LiveStartPolicy.isConfirmed(
+            stableHits = stableHits,
+            missHits = missHits,
+            confidence = confidence,
+            centralScore = central,
+            sceneScore = sceneScore,
+            planeScore = planeScore
+        )
         return LiveScreenState(
             live, planeScore, central, sceneScore,
-            bestX, bestY
+            bestX, bestY, aircraftBehaviour.score,
+            max(movementScore, aircraftBehaviour.movementScore)
         )
     }
 

@@ -30,12 +30,17 @@ internal object LiveStartPolicy {
 }
 
 internal class IndicatorPhaseMachine(
-    private val missingFramesToReset: Int = 3
+    private val missingFramesToReset: Int = 3,
+    private val redVisibleDurationMs: Long = 1_200L
 ) {
     var phase: IndicatorPhase = IndicatorPhase.BLACK
         private set
 
     private var missingLiveFrames = 0
+    private var redStartedAtMs = 0L
+    // Once the brief RED alert is hidden, keep BLACK during the same live round.
+    // Re-arm only after the old live scene disappears or an explicit end marker.
+    private var awaitingNextRound = false
     // OCR can retain "FLEW AWAY" for a short period after the next round appears.
     // Consume each end-marker episode once so it resets the old round without
     // repeatedly pushing the newly detected round back to BLACK.
@@ -43,9 +48,14 @@ internal class IndicatorPhaseMachine(
 
     init {
         require(missingFramesToReset >= 1)
+        require(redVisibleDurationMs >= 1L)
     }
 
-    fun observeLive(visualLive: Boolean, endConfirmed: Boolean): IndicatorPhase {
+    fun observeLive(
+        visualLive: Boolean,
+        endConfirmed: Boolean,
+        nowMs: Long = System.nanoTime() / 1_000_000L
+    ): IndicatorPhase {
         if (!endConfirmed) endMarkerLatched = false
 
         // An end marker must end an already active round even if the detector
@@ -56,9 +66,31 @@ internal class IndicatorPhaseMachine(
             return phase
         }
 
-        // In BLACK, fresh live evidence wins over stale OCR from the preceding
-        // round. Latch that OCR episode so it cannot flicker the new round.
+        // RED is a brief alert, not a state that should remain visible until the
+        // crash/end marker. Hide it after the alert window, then hold BLACK until
+        // the current live scene has actually ended so it cannot flicker GREEN.
+        if (phase == IndicatorPhase.RED && nowMs - redStartedAtMs >= redVisibleDurationMs) {
+            phase = IndicatorPhase.BLACK
+            awaitingNextRound = true
+            missingLiveFrames = 0
+        }
+
+        // In BLACK, fresh live evidence starts a round only when the previous
+        // round has been cleared. While awaitingNextRound, require consecutive
+        // non-live frames before accepting the next live scene.
         if (phase == IndicatorPhase.BLACK) {
+            if (awaitingNextRound) {
+                if (visualLive) {
+                    missingLiveFrames = 0
+                } else {
+                    missingLiveFrames++
+                    if (missingLiveFrames >= missingFramesToReset) {
+                        awaitingNextRound = false
+                        missingLiveFrames = 0
+                    }
+                }
+                return phase
+            }
             if (visualLive) {
                 missingLiveFrames = 0
                 phase = IndicatorPhase.GREEN
@@ -76,18 +108,24 @@ internal class IndicatorPhaseMachine(
         return phase
     }
 
-    fun markPreFlyAway(): IndicatorPhase {
-        if (phase == IndicatorPhase.GREEN) phase = IndicatorPhase.RED
+    fun markPreFlyAway(nowMs: Long = System.nanoTime() / 1_000_000L): IndicatorPhase {
+        if (phase == IndicatorPhase.GREEN) {
+            phase = IndicatorPhase.RED
+            redStartedAtMs = nowMs
+        }
         return phase
     }
 
     fun reset() {
         resetPhase()
         endMarkerLatched = false
+        awaitingNextRound = false
     }
 
     private fun resetPhase() {
         phase = IndicatorPhase.BLACK
         missingLiveFrames = 0
+        redStartedAtMs = 0L
+        awaitingNextRound = false
     }
 }

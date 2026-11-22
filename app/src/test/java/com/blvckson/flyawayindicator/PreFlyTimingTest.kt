@@ -166,4 +166,93 @@ class PreFlyTimingTest {
         assertEquals(2, PreFlyTiming.requiredConfirmations(50L, 3))
         assertEquals(2, PreFlyTiming.requiredConfirmations(220L, 4))
     }
+
+    @Test
+    fun longRoundPathWaitsUntilTheFourXTimeBoundary() {
+        val signals = PreFlySignals(
+            trend = 0.90, central = 0.30, plane = 0.65, movement = 0.55, multiplier = 0.35
+        )
+        val candidate = PreFlyTiming.candidate(signals)
+
+        assertTrue(PreFlyTiming.isEvidence(
+            signals, candidate, 0.55, 0.30,
+            baselineSampleCount = 4,
+            roundFrameCount = 180,
+            flightProgress = 0.32,
+            roundElapsedMs = PreFlyTiming.LONG_ROUND_THRESHOLD_MS
+        ))
+    }
+
+    @Test
+    fun longRoundPathStillWorksForExtremelyLongFlights() {
+        val signals = PreFlySignals(
+            trend = 0.90, central = 0.30, plane = 0.65, movement = 0.55, multiplier = 0.35
+        )
+        val candidate = PreFlyTiming.candidate(signals)
+
+        assertTrue(PreFlyTiming.isEvidence(
+            signals, candidate, 0.55, 0.30,
+            baselineSampleCount = 2,
+            roundFrameCount = 1_800,
+            flightProgress = 0.42,
+            roundElapsedMs = 180_000L
+        ))
+    }
+
+    @Test
+    fun longRoundRejectsVisualAndAircraftPresenceWithoutActualMotionOrAppearanceChange() {
+        val signals = PreFlySignals(
+            trend = 0.90, central = 0.20, plane = 0.80, movement = 0.02, multiplier = 0.0
+        )
+        val candidate = PreFlyTiming.candidate(signals)
+
+        assertFalse(PreFlyTiming.isEvidence(
+            signals, candidate, 0.60, 0.25,
+            baselineSampleCount = 4,
+            roundFrameCount = 180,
+            flightProgress = 0.40,
+            roundElapsedMs = PreFlyTiming.LONG_ROUND_THRESHOLD_MS
+        ))
+    }
+
+    @Test
+    fun longRoundRequiresThreeConsecutiveConfirmations() {
+        assertEquals(3, PreFlyTiming.requiredConfirmations(
+            frameDeltaMs = 220L,
+            independentSignals = 5,
+            longRound = true
+        ))
+    }
+
+    @Test
+    fun shortAndMediumPathRemainsAvailableImmediatelyBeforeLongRoundBoundary() {
+        val signals = PreFlySignals(
+            trend = 0.72, central = 0.20, plane = 0.50, movement = 0.20
+        )
+        val candidate = PreFlyTiming.candidate(signals)
+
+        assertTrue(PreFlyTiming.isEvidence(
+            signals, candidate, 0.55, 0.30,
+            baselineSampleCount = 4,
+            roundFrameCount = 8,
+            flightProgress = 0.20,
+            roundElapsedMs = PreFlyTiming.LONG_ROUND_THRESHOLD_MS - 1L
+        ))
+    }
+
+    @Test
+    fun longRoundDoesNotFallBackToTheLessStrictNormalPath() {
+        val signals = PreFlySignals(
+            trend = 0.90, central = 0.20, plane = 0.80, movement = 0.02
+        )
+        val candidate = PreFlyTiming.candidate(signals)
+
+        assertFalse(PreFlyTiming.isEvidence(
+            signals, candidate, 0.60, 0.25,
+            baselineSampleCount = 4,
+            roundFrameCount = 180,
+            flightProgress = 0.40,
+            roundElapsedMs = PreFlyTiming.LONG_ROUND_THRESHOLD_MS
+        ))
+    }
 }

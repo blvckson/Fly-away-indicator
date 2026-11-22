@@ -118,6 +118,7 @@ internal class IndicatorPhaseMachine(
     fun rearmForLongRound(): Boolean {
         if (phase != IndicatorPhase.BLACK || !awaitingNextRound) return false
         phase = IndicatorPhase.GREEN
+        redStartedAtMs = 0L
         awaitingNextRound = false
         missingLiveFrames = 0
         return true

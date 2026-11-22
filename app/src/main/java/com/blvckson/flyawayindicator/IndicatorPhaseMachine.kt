@@ -46,6 +46,9 @@ internal class IndicatorPhaseMachine(
     // repeatedly pushing the newly detected round back to BLACK.
     private var endMarkerLatched = false
 
+    val isAwaitingNextRound: Boolean
+        get() = awaitingNextRound
+
     init {
         require(missingFramesToReset >= 1)
         require(redVisibleDurationMs >= 1L)
@@ -106,6 +109,18 @@ internal class IndicatorPhaseMachine(
             if (missingLiveFrames >= missingFramesToReset) resetPhase()
         }
         return phase
+    }
+
+    /**
+     * Restore GREEN once, only when the same verified live round is still present.
+     * ScreenMonitorService applies the long-round time and one-rearm-per-round gates.
+     */
+    fun rearmForLongRound(): Boolean {
+        if (phase != IndicatorPhase.BLACK || !awaitingNextRound) return false
+        phase = IndicatorPhase.GREEN
+        awaitingNextRound = false
+        missingLiveFrames = 0
+        return true
     }
 
     fun markPreFlyAway(nowMs: Long = System.nanoTime() / 1_000_000L): IndicatorPhase {

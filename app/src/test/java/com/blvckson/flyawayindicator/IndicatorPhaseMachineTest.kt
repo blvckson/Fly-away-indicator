@@ -161,4 +161,35 @@ class IndicatorPhaseMachineTest {
         assertEquals(IndicatorPhase.BLACK, machine.phase)
         assertEquals(IndicatorPhase.GREEN, machine.observeLive(visualLive = true, endConfirmed = true))
     }
+
+    @Test
+    fun longRoundCanRearmOnceAfterAnEarlyRedAlertExpires() {
+        val machine = IndicatorPhaseMachine(redVisibleDurationMs = 1_200L)
+        machine.observeLive(visualLive = true, endConfirmed = false, nowMs = 1_000L)
+        machine.markPreFlyAway(nowMs = 1_100L)
+
+        assertEquals(
+            IndicatorPhase.BLACK,
+            machine.observeLive(visualLive = true, endConfirmed = false, nowMs = 2_300L)
+        )
+        assertTrue(machine.isAwaitingNextRound)
+        assertTrue(machine.rearmForLongRound())
+        assertEquals(IndicatorPhase.GREEN, machine.phase)
+        assertFalse(machine.isAwaitingNextRound)
+        assertFalse(machine.rearmForLongRound())
+    }
+
+    @Test
+    fun longRoundCannotRearmAfterAnActualRoundEnd() {
+        val machine = IndicatorPhaseMachine()
+        machine.observeLive(visualLive = true, endConfirmed = false, nowMs = 1_000L)
+        machine.markPreFlyAway(nowMs = 1_100L)
+
+        assertEquals(
+            IndicatorPhase.BLACK,
+            machine.observeLive(visualLive = false, endConfirmed = true, nowMs = 1_200L)
+        )
+        assertFalse(machine.isAwaitingNextRound)
+        assertFalse(machine.rearmForLongRound())
+    }
 }

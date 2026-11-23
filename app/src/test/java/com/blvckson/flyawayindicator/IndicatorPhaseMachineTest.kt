@@ -209,4 +209,38 @@ class IndicatorPhaseMachineTest {
         assertEquals(IndicatorPhase.RED, machine.markPreFlyAway(1_400L))
         assertEquals(2L, machine.roundStartGeneration)
     }
-}
+
+    @Test
+    fun longRoundFallbackCanWarnAfterTemporaryLiveDetectorLoss() {
+        val machine = IndicatorPhaseMachine()
+        machine.observeLive(true, false, 1_000L)
+        machine.observeLive(false, false, 1_100L)
+        machine.observeLive(false, false, 1_200L)
+        assertEquals(IndicatorPhase.BLACK, machine.observeLive(false, false, 1_300L))
+        assertTrue(machine.isRoundActive)
+
+        assertEquals(IndicatorPhase.RED, machine.markLongRoundFallback(17_000L))
+        assertEquals(IndicatorPhase.RED, machine.phase)
+    }
+
+    @Test
+    fun longRoundFallbackIsOneShotAndCannotRearmBeforeConfirmedRoundEnd() {
+        val machine = IndicatorPhaseMachine(redVisibleDurationMs = 1_200L)
+        machine.observeLive(true, false, 1_000L)
+        assertEquals(IndicatorPhase.RED, machine.markLongRoundFallback(17_000L))
+        assertEquals(IndicatorPhase.BLACK, machine.observeLive(true, false, 18_200L))
+        assertEquals(IndicatorPhase.BLACK, machine.markLongRoundFallback(30_000L))
+        assertTrue(machine.isRoundActive)
+
+        machine.observeLive(false, true, 30_100L)
+        assertFalse(machine.isRoundActive)
+        assertEquals(IndicatorPhase.BLACK, machine.markLongRoundFallback(40_000L))
+    }
+
+    @Test
+    fun longRoundFallbackCannotIssueWithoutAnAcceptedActiveRound() {
+        val machine = IndicatorPhaseMachine()
+        assertEquals(IndicatorPhase.BLACK, machine.markLongRoundFallback(17_000L))
+        assertFalse(machine.isRoundActive)
+    }
+

@@ -105,8 +105,7 @@ class ScreenMonitorService : Service() {
     private var indicatorBaselineScore=0.0
     private var indicatorLastFrameAtMs=0L
     private var indicatorRoundStartedAtMs=0L
-    private var indicatorLongRearmUsed=false
-    private var indicatorLastRedElapsedMs=-1L
+    private var indicatorWasLongRound=false
     private var indicatorStartPlaneX=Float.NaN
     private var indicatorStartPlaneY=Float.NaN
     private var indicatorFlightProgress=0.0
@@ -221,36 +220,18 @@ class ScreenMonitorService : Service() {
         // BLACK -> GREEN, and so stale end-text cannot block the following round.
         val endConfirmed=textEvidence.endConfirmed
         val phaseNowMs=SystemClock.elapsedRealtime()
-        val elapsedBeforeLongRearm=if(indicatorRoundStartedAtMs>0L)
-            (phaseNowMs-indicatorRoundStartedAtMs).coerceAtLeast(0L) else 0L
         val previousIndicatorPhase=indicatorPhaseMachine.phase
-        indicatorPhaseMachine.observeLive(visualLive,endConfirmed)
-
-        // A premature RED alert may expire while a genuinely long round is still
-        // flying. Re-arm once, at the long-round boundary, without resetting the
-        // original round clock or its learned visual baseline.
-        val longRoundRearmed=visualLive &&
-            elapsedBeforeLongRearm>=PreFlyTiming.LONG_ROUND_THRESHOLD_MS &&
-            !indicatorLongRearmUsed &&
-            indicatorLastRedElapsedMs>=0L &&
-            indicatorLastRedElapsedMs<PreFlyTiming.LONG_ROUND_THRESHOLD_MS &&
-            indicatorPhaseMachine.rearmForLongRound()
-        if(longRoundRearmed){
-            indicatorLongRearmUsed=true
-            indicatorPreScore=0.0
-            indicatorPreHold=0
-            indicatorPreDetected=false
-            indicatorLastFrameAtMs=0L
-        }
+        val previousRoundEndGeneration=indicatorPhaseMachine.roundEndGeneration
+        indicatorPhaseMachine.observeLive(visualLive,endConfirmed,nowMs=phaseNowMs)
+        val roundEnded=indicatorPhaseMachine.roundEndGeneration!=previousRoundEndGeneration
         val currentIndicatorPhase=indicatorPhaseMachine.phase
 
         if(previousIndicatorPhase==IndicatorPhase.BLACK &&
-            currentIndicatorPhase==IndicatorPhase.GREEN && !longRoundRearmed){
-            // Start a fresh per-round baseline immediately when the verified live
-            // screen first appears. The current frame becomes opening sample one.
+            currentIndicatorPhase==IndicatorPhase.GREEN){
+            // A genuinely new round starts with fresh detector and multiplier
+            // history. The tracker was cleared when the previous round ended.
             indicatorRoundStartedAtMs=phaseNowMs
-            indicatorLongRearmUsed=false
-            indicatorLastRedElapsedMs=-1L
+            indicatorWasLongRound=false
             indicatorPreScore=0.0
             indicatorPreHold=0
             indicatorPreDetected=false
@@ -270,21 +251,19 @@ class ScreenMonitorService : Service() {
             lastMove=0.0
             lastPlaneX=Float.NaN
             lastPlaneY=Float.NaN
-        }else if(previousIndicatorPhase!=IndicatorPhase.BLACK &&
-            currentIndicatorPhase==IndicatorPhase.BLACK &&
-            indicatorPhaseMachine.isAwaitingNextRound){
-            // RED has simply expired. Keep the same-round baseline and start time
-            // so a long flight can receive its one late-round re-arm.
+        }else if(previousIndicatorPhase==IndicatorPhase.RED &&
+            currentIndicatorPhase==IndicatorPhase.BLACK && !roundEnded){
+            // The 1.2-second alert has been hidden, but this is still the same
+            // round. Keep its baseline and one-alert lock until a real end is seen.
             indicatorPreScore=0.0
             indicatorPreHold=0
             indicatorPreDetected=false
-        }else if(previousIndicatorPhase!=IndicatorPhase.BLACK &&
-            currentIndicatorPhase==IndicatorPhase.BLACK){
-            // The live round actually ended (explicit end marker or sustained
-            // disappearance), so discard only this round's timing/calibration.
+        }else if(roundEnded){
+            // The phase machine emits a round-end generation for both explicit
+            // OCR ends and sustained disappearance, even when RED already expired
+            // and the visible phase was BLACK. Reset every per-round tracker here.
             indicatorRoundStartedAtMs=0L
-            indicatorLongRearmUsed=false
-            indicatorLastRedElapsedMs=-1L
+            indicatorWasLongRound=false
             indicatorPreScore=0.0
             indicatorPreHold=0
             indicatorPreDetected=false
@@ -319,7 +298,7 @@ class ScreenMonitorService : Service() {
             // Ignore the lobby-to-live screen cut in the trend and central-change
             // channels; it is a round-start transition, not a pre-fly signal.
             val roundJustStarted = previousIndicatorPhase==IndicatorPhase.BLACK &&
-                currentIndicatorPhase==IndicatorPhase.GREEN && !longRoundRearmed
+                currentIndicatorPhase==IndicatorPhase.GREEN
             val indicatorCentralChange=if(roundJustStarted) 0.0 else central
             // Do not insert a synthetic zero for the lobby-to-live transition:
             // it biases the early/late average and can manufacture a rising trend.
@@ -398,7 +377,17 @@ class ScreenMonitorService : Service() {
                 flightProgress=indicatorFlightProgress,
                 roundElapsedMs=roundElapsedMs
             )
-            indicatorPreHold=PreFlyTiming.updatedHold(indicatorPreHold,preEvidence)
+            val isLongRound=roundElapsedMs>=PreFlyTiming.LONG_ROUND_THRESHOLD_MS
+            if(isLongRound && !indicatorWasLongRound){
+                // Do not carry pre-boundary short/medium evidence into the
+                // independent long-round three-frame confirmation streak.
+                indicatorPreHold=0
+            }
+            indicatorWasLongRound=isLongRound
+            indicatorPreHold=if(isLongRound)
+                PreFlyTiming.updatedLongRoundHold(indicatorPreHold,preEvidence)
+            else
+                PreFlyTiming.updatedHold(indicatorPreHold,preEvidence)
 
             // Update a rolling normal-behaviour baseline during quiet observations.
             // Freeze it whenever the score rises or multiple channels hint at change.
@@ -414,21 +403,21 @@ class ScreenMonitorService : Service() {
 
             // Strong three-channel evidence can confirm in two frames even at normal
             // capture cadence; otherwise use three frames, or two on slow capture.
-            val isLongRound=roundElapsedMs>=PreFlyTiming.LONG_ROUND_THRESHOLD_MS
             val requiredConfirmations=PreFlyTiming.requiredConfirmations(
                 frameDeltaMs,independentSignals,longRound=isLongRound
             )
             if(indicatorPreHold>=requiredConfirmations &&
                 indicatorPhaseMachine.phase==IndicatorPhase.GREEN){
                 indicatorRoundHadActivity=true
-                indicatorPhaseMachine.markPreFlyAway()
-                if(indicatorPhaseMachine.phase==IndicatorPhase.RED){
-                    indicatorLastRedElapsedMs=roundElapsedMs
+                val phaseBeforeAlert=indicatorPhaseMachine.phase
+                indicatorPhaseMachine.markPreFlyAway(phaseNowMs)
+                if(phaseBeforeAlert==IndicatorPhase.GREEN &&
+                    indicatorPhaseMachine.phase==IndicatorPhase.RED){
+                    indicatorPreDetected=true
+                    latchedRedSignalReport=lastIndicatorSignalReport
+                    // Vibrate only for the single permitted GREEN -> RED transition.
+                    vibrateForPreFlyAway()
                 }
-                indicatorPreDetected=indicatorPhaseMachine.phase==IndicatorPhase.RED
-                latchedRedSignalReport=lastIndicatorSignalReport
-                // Vibrate exactly once, on the GREEN -> RED phase transition.
-                vibrateForPreFlyAway()
             }
         }
 

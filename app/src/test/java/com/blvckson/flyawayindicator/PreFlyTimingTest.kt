@@ -259,12 +259,14 @@ class PreFlyTimingTest {
     }
 
     @Test
-    fun longRoundRequiresThreeConsecutiveConfirmations() {
-        assertEquals(3, PreFlyTiming.requiredConfirmations(
+    fun longRoundRequiresTwoCorroboratedConfirmations() {
+        assertEquals(2, PreFlyTiming.requiredConfirmations(
             frameDeltaMs = 220L,
             independentSignals = 5,
             longRound = true
         ))
+        assertEquals(1, PreFlyTiming.updatedLongRoundHold(2, false))
+        assertEquals(2, PreFlyTiming.updatedLongRoundHold(1, true))
     }
 
     @Test

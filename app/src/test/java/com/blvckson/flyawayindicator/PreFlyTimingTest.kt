@@ -315,42 +315,47 @@ class PreFlyTimingTest {
     }
 
     @Test
-    fun longRoundFallbackIssuesAtTheBoundaryWithoutRequiringPreFlySignals() {
-        assertFalse(PreFlyTiming.shouldIssueLongRoundFallback(
+    fun consistencyFallbackCoversShortMediumAndLongRounds() {
+        val roundLengths = listOf(
+            1_000L,   // short / very short window
+            6_000L,   // medium window
+            17_000L,  // long-round boundary
+            180_000L  // extremely long round
+        )
+        for (elapsed in roundLengths) {
+            assertTrue(
+                "No consistency fallback at elapsed time $elapsed ms",
+                PreFlyTiming.shouldIssueConsistencyFallback(
+                    roundActive = true,
+                    endConfirmed = false,
+                    positivelyLive = true,
+                    roundElapsedMs = elapsed
+                )
+            )
+        }
+        assertFalse(PreFlyTiming.shouldIssueConsistencyFallback(
             roundActive = true,
             endConfirmed = false,
             positivelyLive = true,
-            roundElapsedMs = PreFlyTiming.LONG_ROUND_THRESHOLD_MS - 1L
-        ))
-        assertTrue(PreFlyTiming.shouldIssueLongRoundFallback(
-            roundActive = true,
-            endConfirmed = false,
-            positivelyLive = true,
-            roundElapsedMs = PreFlyTiming.LONG_ROUND_THRESHOLD_MS
-        ))
-        assertTrue(PreFlyTiming.shouldIssueLongRoundFallback(
-            roundActive = true,
-            endConfirmed = false,
-            positivelyLive = true,
-            roundElapsedMs = 180_000L
+            roundElapsedMs = PreFlyTiming.CONSISTENCY_WARNING_FALLBACK_MS - 1L
         ))
     }
 
     @Test
-    fun longRoundFallbackRequiresAnActiveUnfinishedPositivelyLiveRound() {
-        assertFalse(PreFlyTiming.shouldIssueLongRoundFallback(
+    fun consistencyFallbackRequiresAnActiveUnfinishedPositivelyLiveRound() {
+        assertFalse(PreFlyTiming.shouldIssueConsistencyFallback(
             roundActive = false,
             endConfirmed = false,
             positivelyLive = true,
             roundElapsedMs = 180_000L
         ))
-        assertFalse(PreFlyTiming.shouldIssueLongRoundFallback(
+        assertFalse(PreFlyTiming.shouldIssueConsistencyFallback(
             roundActive = true,
             endConfirmed = true,
             positivelyLive = true,
             roundElapsedMs = 180_000L
         ))
-        assertFalse(PreFlyTiming.shouldIssueLongRoundFallback(
+        assertFalse(PreFlyTiming.shouldIssueConsistencyFallback(
             roundActive = true,
             endConfirmed = false,
             positivelyLive = false,

@@ -472,6 +472,39 @@ class ScreenMonitorService : Service() {
             if(skipForReacquisition) indicatorChanges.clear()
         }
 
+        // Long-round coverage fallback: do not make the user wait for a narrow
+        // pre-fly-away visual pattern. Once a positively identified round passes
+        // the nominal 4x time boundary, issue one warning even if temporal scoring
+        // never reaches its evidence threshold or GREEN is briefly hidden.
+        val freshLiveCashOutEvidence =
+            textEvidence.verified &&
+                textEvidence.multiplierPresent &&
+                textEvidence.cashOutPresent &&
+                !textEvidence.endConfirmed &&
+                textEvidence.observedAtMillis > 0L &&
+                wallNowMs >= textEvidence.observedAtMillis &&
+                wallNowMs - textEvidence.observedAtMillis <= 650L
+        val positivelyLiveForFallback = visualLive || freshLiveCashOutEvidence
+        if (PreFlyTiming.shouldIssueLongRoundFallback(
+                roundActive = indicatorPhaseMachine.isRoundActive,
+                endConfirmed = endConfirmed,
+                positivelyLive = positivelyLiveForFallback,
+                roundElapsedMs = roundElapsedMs
+            )
+        ) {
+            val phaseBeforeFallback = indicatorPhaseMachine.phase
+            indicatorPhaseMachine.markLongRoundFallback(phaseNowMs)
+            if (phaseBeforeFallback != IndicatorPhase.RED &&
+                indicatorPhaseMachine.phase == IndicatorPhase.RED
+            ) {
+                indicatorRoundHadActivity = true
+                indicatorPreDetected = true
+                latchedRedSignalReport =
+                    "Long-round consistency warning — issued once after the round passed 17 seconds while Aviator remained positively live. This is a coverage reminder, not an exact pre-fly-away prediction."
+                vibrateForPreFlyAway()
+            }
+        }
+
         // Round video recording, saving, and post-round analysis are intentionally
         // disabled: they consumed CPU/storage and interfered with the user's priority,
         // the live pre-fly-away colour indicator. Keep monitoring independent.
@@ -519,8 +552,14 @@ class ScreenMonitorService : Service() {
                 "Indicator is black. Waiting for verified live-round evidence.")
             IndicatorPhase.GREEN -> publish("ROUND VISUAL MONITORING — GREEN",false,
                 "Aviator live round confirmed. Tracking visual behaviour for the pre-fly-away change.")
-            IndicatorPhase.RED -> publish("PRE-FLY-AWAY DETECTED",true,
-                "Pre-fly-away visual/behavioural transition detected. Red indicator ON. ${latchedRedSignalReport.ifBlank { lastIndicatorSignalReport }}")
+            IndicatorPhase.RED -> {
+                if (latchedRedSignalReport.startsWith("Long-round consistency warning")) {
+                    publish("ROUND WARNING ISSUED",true,latchedRedSignalReport)
+                } else {
+                    publish("PRE-FLY-AWAY DETECTED",true,
+                        "Pre-fly-away visual/behavioural transition detected. Red indicator ON. ${latchedRedSignalReport.ifBlank { lastIndicatorSignalReport }}")
+                }
+            }
         }
 
         lastFrame?.recycle()

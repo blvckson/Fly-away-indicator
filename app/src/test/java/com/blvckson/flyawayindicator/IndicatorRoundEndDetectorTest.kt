@@ -38,21 +38,15 @@ class IndicatorRoundEndDetectorTest {
     @Test
     fun cashOutControlBlocksTheFallbackEvenWhenAPlaneIsMissing() {
         val detector = IndicatorRoundEndDetector()
-        detector.beginRound(planePresent = true, lastObservedTextAtMs = 10_000L)
-        detector.observeFrame(1_100L, 10_100L, false, readyEvidence(10_100L))
-        detector.observeFrame(1_400L, 10_400L, false, readyEvidence(10_400L))
-        detector.observeFrame(2_900L, 11_900L, false, readyEvidence(11_900L))
+        establishCandidate(detector)
         val cashOut = readyEvidence(11_900L, cashOutPresent = true)
         assertFalse(detector.isConfirmed(3_500L, 12_500L, cashOut))
     }
 
     @Test
-    fun anUnrelatedOrStaleOcrSampleCannotStartTheFallback() {
+    fun unrelatedOrStaleOcrCannotConfirmTheFallback() {
         val detector = IndicatorRoundEndDetector()
-        detector.beginRound(planePresent = true, lastObservedTextAtMs = 10_000L)
-        detector.observeFrame(1_100L, 10_100L, false, readyEvidence(10_100L))
-        detector.observeFrame(1_400L, 10_400L, false, readyEvidence(10_400L))
-        detector.observeFrame(2_900L, 11_900L, false, readyEvidence(11_900L))
+        establishCandidate(detector)
         val unrelated = AviatorTextEvidence(observedAtMillis = 11_900L)
         assertFalse(detector.isConfirmed(3_500L, 12_500L, unrelated))
         assertFalse(detector.isConfirmed(3_500L, 13_200L, readyEvidence(11_900L)))
@@ -62,10 +56,8 @@ class IndicatorRoundEndDetectorTest {
     fun reacquiredAircraftCancelsThePendingRoundEndCandidate() {
         val detector = IndicatorRoundEndDetector()
         establishCandidate(detector)
-        detector.recordRedMultiplier("1.84x", 2_900L, 11_900L, detector.generation)
         detector.observeFrame(3_000L, 12_000L, true, readyEvidence(12_000L))
-        detector.recordRedMultiplier("1.84x", 3_800L, 12_800L, detector.generation)
-        assertFalse(detector.isConfirmed(3_800L, 12_800L, readyEvidence(12_000L)))
+        assertFalse(detector.isConfirmed(5_000L, 14_000L, readyEvidence(14_000L)))
     }
 
     @Test
@@ -86,13 +78,12 @@ class IndicatorRoundEndDetectorTest {
     }
 
     @Test
-    fun callbacksFromAnEarlierRoundAreIgnoredAfterReset() {
+    fun anUnseenAircraftCannotCauseAFalseRoundEnd() {
         val detector = IndicatorRoundEndDetector()
-        establishCandidate(detector)
-        val oldGeneration = detector.generation
-        detector.reset()
-        detector.recordRedMultiplier("1.84x", 3_800L, 12_800L, oldGeneration)
-        assertFalse(detector.isConfirmed(3_800L, 12_800L, readyEvidence(12_800L)))
+        detector.beginRound(planePresent = false, lastObservedTextAtMs = 10_000L)
+        detector.observeFrame(5_000L, 15_000L, false, readyEvidence(15_000L))
+        detector.observeFrame(5_500L, 15_500L, false, readyEvidence(15_500L))
+        assertFalse(detector.isConfirmed(10_000L, 20_000L, readyEvidence(20_000L)))
     }
 
     @Test

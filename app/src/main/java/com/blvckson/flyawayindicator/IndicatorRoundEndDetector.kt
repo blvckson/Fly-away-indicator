@@ -30,6 +30,7 @@ internal class IndicatorRoundEndDetector(
     private var lastFinalMultiplierAtMs = 0L
 
     /** Late OCR callbacks from a previous round are ignored after reset. */
+    @Volatile
     var generation: Long = 0L
         private set
 
@@ -42,6 +43,7 @@ internal class IndicatorRoundEndDetector(
         require(minimumProbeIntervalMs >= 1L)
     }
 
+    @Synchronized
     fun reset() {
         generation++
         planeSeenInRound = false
@@ -53,12 +55,14 @@ internal class IndicatorRoundEndDetector(
     }
 
     /** Seed current round identity without counting pre-round OCR as result text. */
+    @Synchronized
     fun beginRound(planePresent: Boolean, lastObservedTextAtMs: Long) {
         reset()
         planeSeenInRound = planePresent
         lastTextObservedAtMs = lastObservedTextAtMs
     }
 
+    @Synchronized
     fun observeFrame(
         nowElapsedMs: Long,
         nowWallMs: Long,
@@ -93,6 +97,7 @@ internal class IndicatorRoundEndDetector(
     }
 
     /** Start red-only OCR only after sustained aircraft loss and repeated BET evidence. */
+    @Synchronized
     fun shouldStartRedMultiplierProbe(
         nowElapsedMs: Long,
         nowWallMs: Long,
@@ -106,6 +111,7 @@ internal class IndicatorRoundEndDetector(
         return true
     }
 
+    @Synchronized
     fun recordRedMultiplier(
         value: String,
         nowElapsedMs: Long,
@@ -135,6 +141,7 @@ internal class IndicatorRoundEndDetector(
         lastFinalMultiplierAtMs = nowElapsedMs
     }
 
+    @Synchronized
     fun isConfirmed(
         nowElapsedMs: Long,
         nowWallMs: Long,

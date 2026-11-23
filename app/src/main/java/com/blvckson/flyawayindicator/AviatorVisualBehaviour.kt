@@ -28,6 +28,8 @@ internal data class AviatorTextEvidence(
     val aviatorLabelPresent: Boolean = false,
     val gameControlsPresent: Boolean = false,
     val endConfirmed: Boolean = false,
+    val betButtonPresent: Boolean = false,
+    val cashOutPresent: Boolean = false,
     val multiplierBounds: MultiplierTextBounds? = null,
     val observedAtMillis: Long = 0L
 )

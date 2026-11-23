@@ -89,9 +89,10 @@ class AviatorTextVerifier {
                     }
 
                     val aviatorWord = text.contains("aviator") || text.contains("flew away")
+                    val betButtonPresent = Pattern.compile("\\bbet\\b").matcher(text).find()
+                    val cashOutPresent = text.contains("cash out") || text.contains("cashout")
                     val betControl = text.contains("bet") &&
-                        (text.contains("auto") || text.contains("cash out") ||
-                            text.contains("cashout"))
+                        (text.contains("auto") || cashOutPresent)
                     val match = multiplierPresent && (aviatorWord || betControl)
                     if (match) {
                         consecutiveMatches = (consecutiveMatches + 1).coerceAtMost(4)
@@ -112,6 +113,8 @@ class AviatorTextVerifier {
                         aviatorLabelPresent = aviatorWord,
                         gameControlsPresent = betControl,
                         endConfirmed = isEndConfirmed(),
+                        betButtonPresent = betButtonPresent,
+                        cashOutPresent = cashOutPresent,
                         multiplierBounds = multiplierBounds,
                         observedAtMillis = System.currentTimeMillis()
                     )

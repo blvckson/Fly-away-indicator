@@ -40,6 +40,8 @@ class ScreenMonitorService : Service() {
     private val textVerifier=AviatorTextVerifier()
     private val multiplierBehaviourTracker=MultiplierBehaviourTracker()
     private val indicatorPhaseMachine=IndicatorPhaseMachine()
+    private val indicatorRoundEndDetector=IndicatorRoundEndDetector()
+    private val indicatorReacquisitionGate=IndicatorReacquisitionGate(requiredStableFrames=2)
     private val videoAnalyser=VideoRoundAnalyser()
     private lateinit var analysisThread:HandlerThread
     private lateinit var analysisHandler:Handler
@@ -218,20 +220,44 @@ class ScreenMonitorService : Service() {
         // The aircraft/game detector already confirms consecutive live frames.
         // Use one phase controller so no second counter or OCR cooldown delays
         // BLACK -> GREEN, and so stale end-text cannot block the following round.
-        val endConfirmed=textEvidence.endConfirmed
         val phaseNowMs=SystemClock.elapsedRealtime()
+        val wallNowMs=System.currentTimeMillis()
         val previousIndicatorPhase=indicatorPhaseMachine.phase
         val previousRoundStartGeneration=indicatorPhaseMachine.roundStartGeneration
         val previousRoundEndGeneration=indicatorPhaseMachine.roundEndGeneration
+        val wasRoundActive=indicatorPhaseMachine.isRoundActive
+        if(wasRoundActive){
+            indicatorRoundEndDetector.observeFrame(
+                phaseNowMs,wallNowMs,planePresent,textEvidence
+            )
+            // Activate the existing red-only OCR reader only after sustained plane
+            // loss and repeated BET-without-CASH-OUT text. Normal frames are untouched.
+            if(!recording && indicatorRoundEndDetector.shouldStartRedMultiplierProbe(
+                phaseNowMs,wallNowMs,textEvidence
+            )){
+                val expectedGeneration=indicatorRoundEndDetector.generation
+                redReader.inspect(frame){value->
+                    indicatorRoundEndDetector.recordRedMultiplier(
+                        value,SystemClock.elapsedRealtime(),System.currentTimeMillis(),expectedGeneration
+                    )
+                }
+            }
+        }
+        val fallbackEndConfirmed=wasRoundActive && indicatorRoundEndDetector.isConfirmed(
+            phaseNowMs,wallNowMs,textEvidence
+        )
+        val endConfirmed=textEvidence.endConfirmed || fallbackEndConfirmed
         indicatorPhaseMachine.observeLive(visualLive,endConfirmed,nowMs=phaseNowMs)
         val roundStarted=indicatorPhaseMachine.roundStartGeneration!=previousRoundStartGeneration
         val roundEnded=indicatorPhaseMachine.roundEndGeneration!=previousRoundEndGeneration
         val currentIndicatorPhase=indicatorPhaseMachine.phase
 
         if(roundStarted){
-            // Reset per-round aircraft/multiplier baselines only for a genuinely
-            // new OCR-delimited round, not when live-screen detection briefly drops
-            // and reacquires the same flight.
+            // Start fresh lifecycle helpers only for a genuinely new round. Seed
+            // aircraft presence from this accepted live frame; do not reset on misses.
+            indicatorRoundEndDetector.reset()
+            indicatorRoundEndDetector.observeFrame(phaseNowMs,wallNowMs,planePresent,textEvidence)
+            indicatorReacquisitionGate.reset()
             indicatorRoundStartedAtMs=phaseNowMs
             indicatorWasLongRound=false
             indicatorPreScore=0.0
@@ -268,8 +294,10 @@ class ScreenMonitorService : Service() {
             indicatorLastFrameAtMs=0L
             indicatorPreDetected=false
         }else if(roundEnded){
-            // Only affirmative round-end evidence reaches this branch. It resets
-            // all per-round state even when the RED display already expired.
+            // OCR FLEW AWAY or the multi-signal fallback releases the round lock.
+            // Reset only now, never on a brief or isolated detector dropout.
+            indicatorRoundEndDetector.reset()
+            indicatorReacquisitionGate.reset()
             indicatorRoundStartedAtMs=0L
             indicatorWasLongRound=false
             indicatorPreScore=0.0
@@ -296,10 +324,30 @@ class ScreenMonitorService : Service() {
         val roundElapsedMs=if(indicatorRoundStartedAtMs>0L)
             (phaseNowMs-indicatorRoundStartedAtMs).coerceAtLeast(0L) else 0L
 
+        val skipForReacquisition=indicatorReacquisitionGate.shouldSkipScoring(
+            roundActive=indicatorPhaseMachine.isRoundActive,
+            phase=currentIndicatorPhase,
+            visualLive=visualLive
+        )
+        val detectorEvidenceLost=indicatorPhaseMachine.isRoundActive &&
+            currentIndicatorPhase!=IndicatorPhase.RED && !visualLive
+        if(detectorEvidenceLost){
+            // Invalidate temporal evidence after even a one-frame miss. Preserve the
+            // per-round baseline, opening plane position and elapsed flight clock.
+            indicatorPreHold=0
+            indicatorPreScore=0.0
+            indicatorLastFrameAtMs=0L
+            indicatorChanges.clear()
+            indicatorPreDetected=false
+            lastMove=0.0
+            lastPlaneX=Float.NaN
+            lastPlaneY=Float.NaN
+        }
+
         indicatorRoundActive=indicatorPhaseMachine.isRoundActive
         indicatorPreDetected=currentIndicatorPhase==IndicatorPhase.RED
 
-        if(indicatorPhaseMachine.phase==IndicatorPhase.GREEN && visualLive){
+        if(indicatorPhaseMachine.phase==IndicatorPhase.GREEN && visualLive && !skipForReacquisition){
             indicatorFrames++
             // Keep trend samples strictly within this confirmed round. The opening
             // frame is retained instead of being discarded by the BLACK -> GREEN reset.
@@ -430,10 +478,11 @@ class ScreenMonitorService : Service() {
                 }
             }
         }else if(indicatorPhaseMachine.phase==IndicatorPhase.GREEN){
-            // Do not accumulate evidence while the detector has temporarily lost
-            // the live scene. The round clock and learned baseline remain intact.
+            // Do not accumulate evidence during a miss or either fresh reacquisition
+            // frame. The round clock and learned baseline remain intact.
             indicatorPreHold=0
             indicatorLastFrameAtMs=0L
+            if(skipForReacquisition) indicatorChanges.clear()
         }
 
         // Round video recording, saving, and post-round analysis are intentionally

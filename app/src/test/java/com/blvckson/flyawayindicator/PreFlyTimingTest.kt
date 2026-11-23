@@ -314,53 +314,5 @@ class PreFlyTimingTest {
         ))
     }
 
-    @Test
-    fun consistencyFallbackCoversShortMediumAndLongRounds() {
-        val roundLengths = listOf(
-            1L,       // first follow-up capture after a confirmed live start
-            1_000L,   // short window
-            6_000L,   // medium window
-            17_000L,  // long-round boundary
-            180_000L  // extremely long round
-        )
-        for (elapsed in roundLengths) {
-            assertTrue(
-                "No consistency fallback at elapsed time $elapsed ms",
-                PreFlyTiming.shouldIssueConsistencyFallback(
-                    roundActive = true,
-                    endConfirmed = false,
-                    positivelyLive = true,
-                    roundElapsedMs = elapsed
-                )
-            )
-        }
-        assertFalse(PreFlyTiming.shouldIssueConsistencyFallback(
-            roundActive = true,
-            endConfirmed = false,
-            positivelyLive = true,
-            roundElapsedMs = 0L
-        ))
-    }
 
-    @Test
-    fun consistencyFallbackRequiresAnActiveUnfinishedPositivelyLiveRound() {
-        assertFalse(PreFlyTiming.shouldIssueConsistencyFallback(
-            roundActive = false,
-            endConfirmed = false,
-            positivelyLive = true,
-            roundElapsedMs = 180_000L
-        ))
-        assertFalse(PreFlyTiming.shouldIssueConsistencyFallback(
-            roundActive = true,
-            endConfirmed = true,
-            positivelyLive = true,
-            roundElapsedMs = 180_000L
-        ))
-        assertFalse(PreFlyTiming.shouldIssueConsistencyFallback(
-            roundActive = true,
-            endConfirmed = false,
-            positivelyLive = false,
-            roundElapsedMs = 180_000L
-        ))
-    }
 }

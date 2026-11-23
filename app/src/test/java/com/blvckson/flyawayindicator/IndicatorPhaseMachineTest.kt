@@ -219,7 +219,7 @@ class IndicatorPhaseMachineTest {
         assertEquals(IndicatorPhase.BLACK, machine.observeLive(false, false, 1_300L))
         assertTrue(machine.isRoundActive)
 
-        assertEquals(IndicatorPhase.RED, machine.markConsistencyFallback(2_000L))
+        assertEquals(IndicatorPhase.RED, machine.markConsistencyFallback(1_301L))
         assertEquals(IndicatorPhase.RED, machine.phase)
     }
 
@@ -232,7 +232,7 @@ class IndicatorPhaseMachineTest {
             machine.observeLive(true, false, startedAt)
             assertEquals(
                 IndicatorPhase.RED,
-                machine.markConsistencyFallback(startedAt + 1_000L)
+                machine.markConsistencyFallback(startedAt + 1L)
             )
             assertEquals(
                 IndicatorPhase.BLACK,

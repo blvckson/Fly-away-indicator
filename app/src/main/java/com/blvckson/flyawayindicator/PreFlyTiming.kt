@@ -128,14 +128,11 @@ internal object PreFlyTiming {
             smoothedScore >= max(0.40, baselineScore + 0.05) &&
             count >= 2
 
-        // Once a round passes the nominal 4x duration, stop using the short/medium
-        // path. Long rounds need a larger relative rise and corroboration from
-        // actual visual change plus aircraft motion or multiplier appearance.
-        // This path has no upper time limit, so very long flights use the same model.
-        // The long-round path remains separate from the proven short/medium path,
-        // but it must tolerate ordinary capture variability. In particular, one
-        // slightly weak aircraft-motion or visual sample must not make a whole
-        // long round ineligible for its only warning.
+        // Once a round passes the nominal 4x duration, use a dedicated
+        // reliability-first path. The user prioritises receiving one warning in
+        // every round over pin-point pre-fly timing, so do not let a high blended
+        // score or a moving baseline suppress an otherwise corroborated alert.
+        // Short/medium rules above remain unchanged. This path has no upper time limit.
         val longTrendEvidence = signals.trend >= 0.58
         val longCentralEvidence = signals.central >= 0.10
         val longPlaneEvidence = signals.plane >= 0.08
@@ -158,10 +155,7 @@ internal object PreFlyTiming {
         val longRoundEvidence = roundElapsedMs >= LONG_ROUND_THRESHOLD_MS &&
             baselineSampleCount >= 2 &&
             roundFrameCount >= 16 &&
-            flightProgress >= 0.12 &&
-            candidate >= max(0.34, baselineScore * 1.20) &&
-            baselineRise >= 0.04 &&
-            smoothedScore >= max(0.40, baselineScore + 0.035) &&
+            flightProgress >= 0.08 &&
             longEvidenceCount >= 2 &&
             longPairedEvidence &&
             hasLongRoundCorroboration(signals)
@@ -175,14 +169,12 @@ internal object PreFlyTiming {
 
     private fun hasLongRoundCorroboration(signals: PreFlySignals): Boolean {
         val visualChange = signals.trend >= 0.58 || signals.central >= 0.10
-        // Aircraft confidence alone is not motion. Accept measured movement at a
-        // realistic lower floor, or multiplier-display appearance change corroborated
-        // by a tracked aircraft observation. Numeric multiplier growth is not used.
-        val aircraftMotion = signals.movement >= 0.06
+        // A tracked aircraft observation can corroborate the visual change even
+        // when the current capture interval shows little movement. Cumulative
+        // flightProgress above still proves the aircraft has travelled this round.
+        val aircraftEvidence = signals.plane >= 0.08 || signals.movement >= 0.06
         val multiplierAppearance = signals.multiplier >= 0.10
-        val aircraftObserved = signals.plane >= 0.08 || signals.movement >= 0.06
-        return visualChange &&
-            (aircraftMotion || (multiplierAppearance && aircraftObserved))
+        return visualChange && (aircraftEvidence || multiplierAppearance)
     }
 
     /**

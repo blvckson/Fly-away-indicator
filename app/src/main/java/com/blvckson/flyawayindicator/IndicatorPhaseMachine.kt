@@ -136,6 +136,23 @@ internal class IndicatorPhaseMachine(
         return phase
     }
 
+    /**
+     * Issue the long-round consistency warning even if a brief detector dropout
+     * has hidden GREEN. The active-round and one-alert locks remain authoritative.
+     */
+    fun markLongRoundFallback(nowMs: Long = System.nanoTime() / 1_000_000L): IndicatorPhase {
+        if (roundActive &&
+            !awaitingNextRound &&
+            !redIssuedThisRound &&
+            (phase == IndicatorPhase.GREEN || phase == IndicatorPhase.BLACK)
+        ) {
+            redIssuedThisRound = true
+            phase = IndicatorPhase.RED
+            redStartedAtMs = nowMs
+        }
+        return phase
+    }
+
     fun reset() {
         phase = IndicatorPhase.BLACK
         clearMissingLive()

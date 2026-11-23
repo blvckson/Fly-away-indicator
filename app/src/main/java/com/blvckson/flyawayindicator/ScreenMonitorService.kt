@@ -221,15 +221,17 @@ class ScreenMonitorService : Service() {
         val endConfirmed=textEvidence.endConfirmed
         val phaseNowMs=SystemClock.elapsedRealtime()
         val previousIndicatorPhase=indicatorPhaseMachine.phase
+        val previousRoundStartGeneration=indicatorPhaseMachine.roundStartGeneration
         val previousRoundEndGeneration=indicatorPhaseMachine.roundEndGeneration
         indicatorPhaseMachine.observeLive(visualLive,endConfirmed,nowMs=phaseNowMs)
+        val roundStarted=indicatorPhaseMachine.roundStartGeneration!=previousRoundStartGeneration
         val roundEnded=indicatorPhaseMachine.roundEndGeneration!=previousRoundEndGeneration
         val currentIndicatorPhase=indicatorPhaseMachine.phase
 
-        if(previousIndicatorPhase==IndicatorPhase.BLACK &&
-            currentIndicatorPhase==IndicatorPhase.GREEN){
-            // A genuinely new round starts with fresh detector and multiplier
-            // history. The tracker was cleared when the previous round ended.
+        if(roundStarted){
+            // Reset per-round aircraft/multiplier baselines only for a genuinely
+            // new OCR-delimited round, not when live-screen detection briefly drops
+            // and reacquires the same flight.
             indicatorRoundStartedAtMs=phaseNowMs
             indicatorWasLongRound=false
             indicatorPreScore=0.0
@@ -254,14 +256,20 @@ class ScreenMonitorService : Service() {
         }else if(previousIndicatorPhase==IndicatorPhase.RED &&
             currentIndicatorPhase==IndicatorPhase.BLACK && !roundEnded){
             // The 1.2-second alert has been hidden, but this is still the same
-            // round. Keep its baseline and one-alert lock until a real end is seen.
+            // round. Keep its baseline and one-alert lock until an end marker.
             indicatorPreScore=0.0
             indicatorPreHold=0
             indicatorPreDetected=false
+        }else if(previousIndicatorPhase==IndicatorPhase.GREEN &&
+            currentIndicatorPhase==IndicatorPhase.BLACK && !roundEnded){
+            // A temporary loss of positive screen evidence hides GREEN only.
+            // Preserve per-round baselines and lock; clear any partial confirmation.
+            indicatorPreHold=0
+            indicatorLastFrameAtMs=0L
+            indicatorPreDetected=false
         }else if(roundEnded){
-            // The phase machine emits a round-end generation for both explicit
-            // OCR ends and sustained disappearance, even when RED already expired
-            // and the visible phase was BLACK. Reset every per-round tracker here.
+            // Only affirmative round-end evidence reaches this branch. It resets
+            // all per-round state even when the RED display already expired.
             indicatorRoundStartedAtMs=0L
             indicatorWasLongRound=false
             indicatorPreScore=0.0
@@ -288,22 +296,24 @@ class ScreenMonitorService : Service() {
         val roundElapsedMs=if(indicatorRoundStartedAtMs>0L)
             (phaseNowMs-indicatorRoundStartedAtMs).coerceAtLeast(0L) else 0L
 
-        indicatorRoundActive=currentIndicatorPhase!=IndicatorPhase.BLACK
+        indicatorRoundActive=indicatorPhaseMachine.isRoundActive
         indicatorPreDetected=currentIndicatorPhase==IndicatorPhase.RED
 
-        if(indicatorPhaseMachine.phase==IndicatorPhase.GREEN){
+        if(indicatorPhaseMachine.phase==IndicatorPhase.GREEN && visualLive){
             indicatorFrames++
             // Keep trend samples strictly within this confirmed round. The opening
             // frame is retained instead of being discarded by the BLACK -> GREEN reset.
             // Ignore the lobby-to-live screen cut in the trend and central-change
             // channels; it is a round-start transition, not a pre-fly signal.
-            val roundJustStarted = previousIndicatorPhase==IndicatorPhase.BLACK &&
+            val roundJustStarted = roundStarted
+            val roundResumed = !roundStarted &&
+                previousIndicatorPhase==IndicatorPhase.BLACK &&
                 currentIndicatorPhase==IndicatorPhase.GREEN
-            val indicatorCentralChange=if(roundJustStarted) 0.0 else central
-            // Do not insert a synthetic zero for the lobby-to-live transition:
-            // it biases the early/late average and can manufacture a rising trend.
-            // Trend begins only after real within-round frame differences arrive.
-            if(!roundJustStarted) indicatorChanges.addLast(change)
+            val skipTransitionFrame = roundJustStarted || roundResumed
+            val indicatorCentralChange=if(skipTransitionFrame) 0.0 else central
+            // Ignore both the lobby-to-live cut and a detector-reacquisition cut.
+            // Neither is a within-round pre-fly-away visual trend.
+            if(!skipTransitionFrame) indicatorChanges.addLast(change)
             while(indicatorChanges.size>10)indicatorChanges.removeFirst()
 
             // Use monotonic capture cadence, not wall-clock time. This keeps the
@@ -367,7 +377,7 @@ class ScreenMonitorService : Service() {
                 indicatorFlightProgress=max(indicatorFlightProgress,progress)
             }
             val independentSignals=PreFlyTiming.evidenceCount(signals)
-            val preEvidence=baselineReady && PreFlyTiming.isEvidence(
+            val preEvidence=!roundResumed && baselineReady && PreFlyTiming.isEvidence(
                 signals=signals,
                 candidate=candidate,
                 smoothedScore=indicatorPreScore,
@@ -391,7 +401,7 @@ class ScreenMonitorService : Service() {
 
             // Update a rolling normal-behaviour baseline during quiet observations.
             // Freeze it whenever the score rises or multiple channels hint at change.
-            if(baselineReady && !preEvidence && PreFlyTiming.shouldLearnBaseline(
+            if(!roundResumed && baselineReady && !preEvidence && PreFlyTiming.shouldLearnBaseline(
                 candidate=candidate,
                 baselineScore=indicatorBaselineScore,
                 signals=signals
@@ -419,6 +429,11 @@ class ScreenMonitorService : Service() {
                     vibrateForPreFlyAway()
                 }
             }
+        }else if(indicatorPhaseMachine.phase==IndicatorPhase.GREEN){
+            // Do not accumulate evidence while the detector has temporarily lost
+            // the live scene. The round clock and learned baseline remain intact.
+            indicatorPreHold=0
+            indicatorLastFrameAtMs=0L
         }
 
         // Round video recording, saving, and post-round analysis are intentionally

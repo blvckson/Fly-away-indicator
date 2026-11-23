@@ -258,4 +258,4 @@ class IndicatorPhaseMachineTest {
         assertEquals(IndicatorPhase.BLACK, machine.markConsistencyFallback(2_000L))
         assertFalse(machine.isRoundActive)
     }
-
+}

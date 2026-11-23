@@ -211,17 +211,18 @@ class PreFlyTimingTest {
     }
 
     @Test
-    fun longRoundAcceptsModerateVisualAndAircraftMotionEvidence() {
+    fun longRoundCanWarnWithModestVisualAndAircraftEvidenceWithoutHighBlendedScore() {
         val signals = PreFlySignals(
-            trend = 0.90, central = 0.15, plane = 0.20, movement = 0.08, multiplier = 0.0
+            trend = 0.60, central = 0.0, plane = 0.08, movement = 0.0, multiplier = 0.0
         )
         val candidate = PreFlyTiming.candidate(signals)
+        assertTrue(candidate < 0.34)
 
         assertTrue(PreFlyTiming.isEvidence(
-            signals, candidate, 0.42, 0.24,
-            baselineSampleCount = 4,
+            signals, candidate, 0.22, 0.20,
+            baselineSampleCount = 2,
             roundFrameCount = 180,
-            flightProgress = 0.14,
+            flightProgress = 0.08,
             roundElapsedMs = PreFlyTiming.LONG_ROUND_THRESHOLD_MS
         ))
     }
@@ -243,7 +244,7 @@ class PreFlyTimingTest {
     }
 
     @Test
-    fun longRoundRejectsVisualAndAircraftPresenceWithoutActualMotionOrAppearanceChange() {
+    fun longRoundRejectsVisualAndAircraftPresenceBeforeMinimumFlightProgress() {
         val signals = PreFlySignals(
             trend = 0.90, central = 0.20, plane = 0.80, movement = 0.02, multiplier = 0.0
         )
@@ -251,6 +252,20 @@ class PreFlyTimingTest {
 
         assertFalse(PreFlyTiming.isEvidence(
             signals, candidate, 0.60, 0.25,
+            baselineSampleCount = 4,
+            roundFrameCount = 180,
+            flightProgress = 0.05,
+            roundElapsedMs = PreFlyTiming.LONG_ROUND_THRESHOLD_MS
+        ))
+    }
+
+    @Test
+    fun longRoundRejectsAircraftPresenceWithoutIndependentVisualChange() {
+        val signals = PreFlySignals(
+            trend = 0.40, central = 0.05, plane = 0.80, movement = 0.02, multiplier = 0.0
+        )
+        assertFalse(PreFlyTiming.isEvidence(
+            signals, PreFlyTiming.candidate(signals), 0.20, 0.10,
             baselineSampleCount = 4,
             roundFrameCount = 180,
             flightProgress = 0.40,

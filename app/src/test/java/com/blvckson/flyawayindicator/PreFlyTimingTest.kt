@@ -301,18 +301,16 @@ class PreFlyTimingTest {
     }
 
     @Test
-    fun longRoundDoesNotFallBackToTheLessStrictNormalPath() {
+    fun shortMediumDoesNotUseTheRelaxedLongRoundFallbackBeforeBoundary() {
         val signals = PreFlySignals(
-            trend = 0.90, central = 0.20, plane = 0.80, movement = 0.02
+            trend = 0.60, central = 0.0, plane = 0.08, movement = 0.0, multiplier = 0.0
         )
-        val candidate = PreFlyTiming.candidate(signals)
-
         assertFalse(PreFlyTiming.isEvidence(
-            signals, candidate, 0.60, 0.25,
-            baselineSampleCount = 4,
+            signals, PreFlyTiming.candidate(signals), 0.22, 0.20,
+            baselineSampleCount = 2,
             roundFrameCount = 180,
-            flightProgress = 0.40,
-            roundElapsedMs = PreFlyTiming.LONG_ROUND_THRESHOLD_MS
+            flightProgress = 0.08,
+            roundElapsedMs = PreFlyTiming.LONG_ROUND_THRESHOLD_MS - 1L
         ))
     }
 }

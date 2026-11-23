@@ -36,7 +36,7 @@ internal object PreFlyTiming {
      * Coverage-first fallback shared by short, medium and long rounds.
      * It is deliberately a round warning, not a claim of exact pre-fly timing.
      */
-    const val CONSISTENCY_WARNING_FALLBACK_MS = 1_000L
+    const val CONSISTENCY_WARNING_FALLBACK_MS = 1L
 
     fun shouldIssueConsistencyFallback(
         roundActive: Boolean,

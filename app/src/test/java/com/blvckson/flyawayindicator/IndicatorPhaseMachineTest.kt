@@ -210,52 +210,32 @@ class IndicatorPhaseMachineTest {
         assertEquals(2L, machine.roundStartGeneration)
     }
 
-    @Test
-    fun consistencyFallbackCanWarnAfterTemporaryLiveDetectorLoss() {
-        val machine = IndicatorPhaseMachine()
-        machine.observeLive(true, false, 1_000L)
-        machine.observeLive(false, false, 1_100L)
-        machine.observeLive(false, false, 1_200L)
-        assertEquals(IndicatorPhase.BLACK, machine.observeLive(false, false, 1_300L))
-        assertTrue(machine.isRoundActive)
-
-        assertEquals(IndicatorPhase.RED, machine.markConsistencyFallback(1_301L))
-        assertEquals(IndicatorPhase.RED, machine.phase)
-    }
 
     @Test
-    fun consistencyFallbackIsOneShotAcrossShortMediumAndLongDurations() {
-        val durations = listOf(2_000L, 6_000L, 17_000L, 180_000L)
-        for ((index, duration) in durations.withIndex()) {
-            val machine = IndicatorPhaseMachine(redVisibleDurationMs = 1_200L)
-            val startedAt = index * 300_000L + 1_000L
-            machine.observeLive(true, false, startedAt)
-            assertEquals(
-                IndicatorPhase.RED,
-                machine.markConsistencyFallback(startedAt + 1L)
-            )
-            assertEquals(
-                IndicatorPhase.BLACK,
-                machine.observeLive(true, false, startedAt + 2_200L)
-            )
-            assertEquals(
-                IndicatorPhase.BLACK,
-                machine.markConsistencyFallback(startedAt + duration + 10_000L)
-            )
-            assertTrue(machine.isRoundActive)
-            machine.observeLive(false, true, startedAt + duration + 20_000L)
-            assertFalse(machine.isRoundActive)
-            assertEquals(
-                IndicatorPhase.BLACK,
-                machine.markConsistencyFallback(startedAt + duration + 30_000L)
-            )
-        }
+    fun reacquisitionFramesRemainIneligibleForPreFlyScoring() {
+        val machine = IndicatorPhaseMachine(missingFramesToHide = 3)
+        val gate = IndicatorReacquisitionGate(requiredStableFrames = 2)
+
+        assertEquals(IndicatorPhase.GREEN, machine.observeLive(true, false, 1_000L))
+        assertFalse(gate.shouldSkipScoring(true, machine.phase, true))
+
+        // A temporary miss invalidates temporal scoring but does not end the round.
+        assertEquals(IndicatorPhase.GREEN, machine.observeLive(false, false, 1_100L))
+        assertFalse(gate.shouldSkipScoring(true, machine.phase, false))
+
+        // Both recovered frames are excluded from pre-fly scoring.
+        assertEquals(IndicatorPhase.GREEN, machine.observeLive(true, false, 1_200L))
+        assertTrue(gate.shouldSkipScoring(true, machine.phase, true))
+        assertEquals(IndicatorPhase.GREEN, machine.phase)
+
+        assertEquals(IndicatorPhase.GREEN, machine.observeLive(true, false, 1_300L))
+        assertTrue(gate.shouldSkipScoring(true, machine.phase, true))
+        assertEquals(IndicatorPhase.GREEN, machine.phase)
+
+        // Only the next stable frame can resume signal evaluation.
+        assertEquals(IndicatorPhase.GREEN, machine.observeLive(true, false, 1_400L))
+        assertFalse(gate.shouldSkipScoring(true, machine.phase, true))
+        assertEquals(IndicatorPhase.GREEN, machine.phase)
     }
 
-    @Test
-    fun consistencyFallbackCannotIssueWithoutAnAcceptedActiveRound() {
-        val machine = IndicatorPhaseMachine()
-        assertEquals(IndicatorPhase.BLACK, machine.markConsistencyFallback(2_000L))
-        assertFalse(machine.isRoundActive)
-    }
 }

@@ -472,10 +472,10 @@ class ScreenMonitorService : Service() {
             if(skipForReacquisition) indicatorChanges.clear()
         }
 
-        // Long-round coverage fallback: do not make the user wait for a narrow
-        // pre-fly-away visual pattern. Once a positively identified round passes
-        // the nominal 4x time boundary, issue one warning even if temporal scoring
-        // never reaches its evidence threshold or GREEN is briefly hidden.
+        // Coverage-first fallback for every round length. Once a positively
+        // identified round has remained live for one second, issue one warning
+        // even if the temporal scoring signals never reach their thresholds.
+        // The fallback is intentionally not labelled as an exact pre-fly prediction.
         val freshLiveCashOutEvidence =
             textEvidence.verified &&
                 textEvidence.multiplierPresent &&
@@ -485,7 +485,7 @@ class ScreenMonitorService : Service() {
                 wallNowMs >= textEvidence.observedAtMillis &&
                 wallNowMs - textEvidence.observedAtMillis <= 650L
         val positivelyLiveForFallback = visualLive || freshLiveCashOutEvidence
-        if (PreFlyTiming.shouldIssueLongRoundFallback(
+        if (PreFlyTiming.shouldIssueConsistencyFallback(
                 roundActive = indicatorPhaseMachine.isRoundActive,
                 endConfirmed = endConfirmed,
                 positivelyLive = positivelyLiveForFallback,
@@ -493,14 +493,14 @@ class ScreenMonitorService : Service() {
             )
         ) {
             val phaseBeforeFallback = indicatorPhaseMachine.phase
-            indicatorPhaseMachine.markLongRoundFallback(phaseNowMs)
+            indicatorPhaseMachine.markConsistencyFallback(phaseNowMs)
             if (phaseBeforeFallback != IndicatorPhase.RED &&
                 indicatorPhaseMachine.phase == IndicatorPhase.RED
             ) {
                 indicatorRoundHadActivity = true
                 indicatorPreDetected = true
                 latchedRedSignalReport =
-                    "Long-round consistency warning — issued once after the round passed 17 seconds while Aviator remained positively live. This is a coverage reminder, not an exact pre-fly-away prediction."
+                    "Round consistency warning — issued once after one second of positively identified live play. This is a coverage reminder, not an exact pre-fly-away prediction."
                 vibrateForPreFlyAway()
             }
         }
@@ -553,7 +553,7 @@ class ScreenMonitorService : Service() {
             IndicatorPhase.GREEN -> publish("ROUND VISUAL MONITORING — GREEN",false,
                 "Aviator live round confirmed. Tracking visual behaviour for the pre-fly-away change.")
             IndicatorPhase.RED -> {
-                if (latchedRedSignalReport.startsWith("Long-round consistency warning")) {
+                if (latchedRedSignalReport.startsWith("Round consistency warning")) {
                     publish("ROUND WARNING ISSUED",true,latchedRedSignalReport)
                 } else {
                     publish("PRE-FLY-AWAY DETECTED",true,

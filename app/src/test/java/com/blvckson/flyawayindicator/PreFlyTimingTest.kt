@@ -160,6 +160,16 @@ class PreFlyTimingTest {
     }
 
     @Test
+    fun longRoundConfirmationRequiresThreeConsecutiveEvidenceFrames() {
+        assertEquals(1, PreFlyTiming.updatedLongRoundHold(0, true))
+        assertEquals(2, PreFlyTiming.updatedLongRoundHold(1, true))
+        assertEquals(0, PreFlyTiming.updatedLongRoundHold(2, false))
+        assertEquals(1, PreFlyTiming.updatedLongRoundHold(0, true))
+        assertEquals(3, PreFlyTiming.updatedLongRoundHold(2, true))
+        assertEquals(3, PreFlyTiming.updatedLongRoundHold(3, true))
+    }
+
+    @Test
     fun confirmationAdaptsToCaptureCadenceAndSignalCorroboration() {
         assertEquals(3, PreFlyTiming.requiredConfirmations(50L, 2))
         assertEquals(2, PreFlyTiming.requiredConfirmations(100L, 2))

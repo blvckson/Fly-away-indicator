@@ -11,6 +11,14 @@ import java.util.regex.Pattern
  * OCR evidence for Aviator screen identity. The multiplier's numeric value is
  * deliberately not exposed; only its presence and visual bounds are retained.
  */
+internal object AviatorMultiplierTextPattern {
+    // Seven integer digits cover the user's very-long-round examples (e.g. 1000004.09x).
+    val pattern: Pattern = Pattern.compile(
+        "\\b\\d{1,7}(?:\\.\\d{1,3})?\\s*x\\b",
+        Pattern.CASE_INSENSITIVE
+    )
+}
+
 class AviatorTextVerifier {
     private val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
     @Volatile private var busy = false
@@ -51,10 +59,7 @@ class AviatorTextVerifier {
                     val text = result.text.lowercase(Locale.US)
                         .replace(',', '.')
                         .replace('×', 'x')
-                    val multiplierPattern = Pattern.compile(
-                        "\\b\\d{1,5}(?:\\.\\d{1,3})?\\s*x\\b",
-                        Pattern.CASE_INSENSITIVE
-                    )
+                    val multiplierPattern = AviatorMultiplierTextPattern.pattern
                     val multiplierLine = result.textBlocks
                         .asSequence()
                         .flatMap { it.lines.asSequence() }

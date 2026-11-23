@@ -473,8 +473,8 @@ class ScreenMonitorService : Service() {
         }
 
         // Coverage-first fallback for every round length. Once a positively
-        // identified round has remained live for one second, issue one warning
-        // even if the temporal scoring signals never reach their thresholds.
+        // identified round has produced its first follow-up capture (at least
+        // 1 ms after acceptance), issue one warning even when scoring stays quiet.
         // The fallback is intentionally not labelled as an exact pre-fly prediction.
         val freshLiveCashOutEvidence =
             textEvidence.verified &&
@@ -500,7 +500,7 @@ class ScreenMonitorService : Service() {
                 indicatorRoundHadActivity = true
                 indicatorPreDetected = true
                 latchedRedSignalReport =
-                    "Round consistency warning — issued once after one second of positively identified live play. This is a coverage reminder, not an exact pre-fly-away prediction."
+                    "Round consistency warning — issued on the first follow-up capture after positive live identification. This is a coverage reminder, not an exact pre-fly-away prediction."
                 vibrateForPreFlyAway()
             }
         }

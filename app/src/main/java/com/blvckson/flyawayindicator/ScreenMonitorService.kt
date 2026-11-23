@@ -468,8 +468,21 @@ class ScreenMonitorService : Service() {
             if(skipForReacquisition) indicatorChanges.clear()
         }
 
-        // RED is issued only by the signal-backed pre-fly-away path above.
-        // Live-screen confirmation or elapsed time alone can never force a warning.
+        // Preserve the signal-backed pre-fly path above, but do not leave a
+        // positively identified round permanently GREEN when its visual signature
+        // is too subtle for the scoring thresholds. The first subsequent live
+        // capture gets one clearly labelled consistency warning. This is not an
+        // exact pre-fly-away prediction and cannot repeat within the same round.
+        if(indicatorPhaseMachine.markConsistencyWarningIfDue(
+                visualLive=visualLive,
+                endConfirmed=endConfirmed,
+                isRoundStartFrame=roundStarted,
+                nowMs=phaseNowMs
+            )){
+            indicatorPreDetected=true
+            latchedRedSignalReport="Consistency fallback — one warning for this positively identified round; not an exact pre-fly-away prediction."
+            vibrateForPreFlyAway()
+        }
 
         // Round video recording, saving, and post-round analysis are intentionally
         // disabled: they consumed CPU/storage and interfered with the user's priority,
@@ -518,8 +531,15 @@ class ScreenMonitorService : Service() {
                 "Indicator is black. Waiting for verified live-round evidence.")
             IndicatorPhase.GREEN -> publish("ROUND VISUAL MONITORING — GREEN",false,
                 "Aviator live round confirmed. Tracking visual behaviour for the pre-fly-away change.")
-            IndicatorPhase.RED -> publish("PRE-FLY-AWAY DETECTED",true,
-                "Pre-fly-away visual/behavioural transition detected. Red indicator ON. ${latchedRedSignalReport.ifBlank { lastIndicatorSignalReport }}")
+            IndicatorPhase.RED -> {
+                if(indicatorPhaseMachine.lastAlertWasConsistencyFallback){
+                    publish("ROUND WARNING ISSUED",true,
+                        "One-time consistency warning issued for this positively identified live round. This is not an exact pre-fly-away prediction.")
+                }else{
+                    publish("PRE-FLY-AWAY DETECTED",true,
+                        "Pre-fly-away visual/behavioural transition detected. Red indicator ON. ${latchedRedSignalReport.ifBlank { lastIndicatorSignalReport }}")
+                }
+            }
         }
 
         lastFrame?.recycle()

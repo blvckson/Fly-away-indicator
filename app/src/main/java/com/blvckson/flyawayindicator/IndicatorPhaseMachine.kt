@@ -51,6 +51,11 @@ internal class IndicatorPhaseMachine(
     private var awaitingNextRound = false
     private var endMarkerLatched = false
     private var redIssuedThisRound = false
+    private var consistencyFallbackPending = false
+
+    /** True only when the current RED came from the consistency fallback, not signal scoring. */
+    var lastAlertWasConsistencyFallback: Boolean = false
+        private set
 
     /** Increments once when a new, positively identified round is first accepted. */
     var roundStartGeneration: Long = 0L
@@ -101,6 +106,8 @@ internal class IndicatorPhaseMachine(
             if (!roundActive) {
                 roundActive = true
                 roundStartGeneration++
+                consistencyFallbackPending = true
+                lastAlertWasConsistencyFallback = false
             }
             // A BLACK phase caused by a temporary detector miss may resume GREEN,
             // but an already-issued RED can never be re-armed within this round.
@@ -130,10 +137,36 @@ internal class IndicatorPhaseMachine(
     fun markPreFlyAway(nowMs: Long = System.nanoTime() / 1_000_000L): IndicatorPhase {
         if (phase == IndicatorPhase.GREEN && roundActive && !redIssuedThisRound) {
             redIssuedThisRound = true
+            consistencyFallbackPending = false
+            lastAlertWasConsistencyFallback = false
             phase = IndicatorPhase.RED
             redStartedAtMs = nowMs
         }
         return phase
+    }
+
+    /**
+     * Issues one consistency warning on the first subsequent positively verified
+     * live capture. This is a per-round fallback, not a prediction of the exact
+     * pre-fly-away moment. Existing signal scoring may still issue RED earlier.
+     */
+    fun markConsistencyWarningIfDue(
+        visualLive: Boolean,
+        endConfirmed: Boolean,
+        isRoundStartFrame: Boolean,
+        nowMs: Long = System.nanoTime() / 1_000_000L
+    ): Boolean {
+        if (!roundActive || endConfirmed || !consistencyFallbackPending ||
+            isRoundStartFrame || !visualLive || phase != IndicatorPhase.GREEN
+        ) return false
+
+        val phaseBeforeWarning = phase
+        markPreFlyAway(nowMs)
+        if (phaseBeforeWarning == IndicatorPhase.GREEN && phase == IndicatorPhase.RED) {
+            lastAlertWasConsistencyFallback = true
+            return true
+        }
+        return false
     }
 
     fun reset() {
@@ -144,6 +177,8 @@ internal class IndicatorPhaseMachine(
         awaitingNextRound = false
         endMarkerLatched = false
         redIssuedThisRound = false
+        consistencyFallbackPending = false
+        lastAlertWasConsistencyFallback = false
     }
 
     private fun clearMissingLive() {
@@ -158,6 +193,8 @@ internal class IndicatorPhaseMachine(
         roundActive = false
         awaitingNextRound = false
         redIssuedThisRound = false
+        consistencyFallbackPending = false
+        lastAlertWasConsistencyFallback = false
         if (hadRound) roundEndGeneration++
     }
 }

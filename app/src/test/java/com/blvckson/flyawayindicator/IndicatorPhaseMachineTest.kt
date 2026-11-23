@@ -238,4 +238,84 @@ class IndicatorPhaseMachineTest {
         assertEquals(IndicatorPhase.GREEN, machine.phase)
     }
 
+
+    @Test
+    fun consistencyFallbackTurnsTheFirstFollowUpLiveCaptureRedOnlyOnce() {
+        val machine = IndicatorPhaseMachine()
+        assertEquals(
+            IndicatorPhase.GREEN,
+            machine.observeLive(visualLive = true, endConfirmed = false, nowMs = 1_000L)
+        )
+
+        // The accepted live-round start itself remains GREEN.
+        assertFalse(machine.markConsistencyWarningIfDue(
+            visualLive = true,
+            endConfirmed = false,
+            isRoundStartFrame = true,
+            nowMs = 1_000L
+        ))
+        assertEquals(IndicatorPhase.GREEN, machine.phase)
+
+        // The very next positively verified live capture issues the shared fallback.
+        assertTrue(machine.markConsistencyWarningIfDue(
+            visualLive = true,
+            endConfirmed = false,
+            isRoundStartFrame = false,
+            nowMs = 1_001L
+        ))
+        assertEquals(IndicatorPhase.RED, machine.phase)
+        assertTrue(machine.lastAlertWasConsistencyFallback)
+
+        // No second RED can be generated during the same round.
+        assertFalse(machine.markConsistencyWarningIfDue(
+            visualLive = true,
+            endConfirmed = false,
+            isRoundStartFrame = false,
+            nowMs = 1_002L
+        ))
+    }
+
+    @Test
+    fun consistencyFallbackWaitsForPositiveLiveEvidenceAfterTemporaryLoss() {
+        val machine = IndicatorPhaseMachine(missingFramesToHide = 3)
+        machine.observeLive(true, false, 1_000L)
+
+        assertFalse(machine.markConsistencyWarningIfDue(
+            visualLive = false, endConfirmed = false,
+            isRoundStartFrame = false, nowMs = 1_100L
+        ))
+        machine.observeLive(false, false, 1_200L)
+        machine.observeLive(false, false, 1_300L)
+        machine.observeLive(false, false, 1_400L)
+        assertEquals(IndicatorPhase.BLACK, machine.phase)
+        assertTrue(machine.isRoundActive)
+
+        // Reacquisition resumes the same round; the pending fallback is not lost.
+        assertEquals(IndicatorPhase.GREEN, machine.observeLive(true, false, 1_500L))
+        assertTrue(machine.markConsistencyWarningIfDue(
+            visualLive = true, endConfirmed = false,
+            isRoundStartFrame = false, nowMs = 1_501L
+        ))
+        assertEquals(IndicatorPhase.RED, machine.phase)
+        assertEquals(1L, machine.roundStartGeneration)
+    }
+
+    @Test
+    fun confirmedEndBlocksPendingFallbackAndNextRoundGetsAFreshOne() {
+        val machine = IndicatorPhaseMachine()
+        machine.observeLive(true, false, 1_000L)
+        assertEquals(IndicatorPhase.BLACK, machine.observeLive(false, true, 1_100L))
+        assertFalse(machine.markConsistencyWarningIfDue(
+            visualLive = true, endConfirmed = true,
+            isRoundStartFrame = false, nowMs = 1_101L
+        ))
+
+        assertEquals(IndicatorPhase.GREEN, machine.observeLive(true, false, 1_200L))
+        assertTrue(machine.markConsistencyWarningIfDue(
+            visualLive = true, endConfirmed = false,
+            isRoundStartFrame = false, nowMs = 1_201L
+        ))
+        assertEquals(2L, machine.roundStartGeneration)
+    }
+
 }

@@ -313,4 +313,48 @@ class PreFlyTimingTest {
             roundElapsedMs = PreFlyTiming.LONG_ROUND_THRESHOLD_MS - 1L
         ))
     }
-}
+
+    @Test
+    fun longRoundFallbackIssuesAtTheBoundaryWithoutRequiringPreFlySignals() {
+        assertFalse(PreFlyTiming.shouldIssueLongRoundFallback(
+            roundActive = true,
+            endConfirmed = false,
+            positivelyLive = true,
+            roundElapsedMs = PreFlyTiming.LONG_ROUND_THRESHOLD_MS - 1L
+        ))
+        assertTrue(PreFlyTiming.shouldIssueLongRoundFallback(
+            roundActive = true,
+            endConfirmed = false,
+            positivelyLive = true,
+            roundElapsedMs = PreFlyTiming.LONG_ROUND_THRESHOLD_MS
+        ))
+        assertTrue(PreFlyTiming.shouldIssueLongRoundFallback(
+            roundActive = true,
+            endConfirmed = false,
+            positivelyLive = true,
+            roundElapsedMs = 180_000L
+        ))
+    }
+
+    @Test
+    fun longRoundFallbackRequiresAnActiveUnfinishedPositivelyLiveRound() {
+        assertFalse(PreFlyTiming.shouldIssueLongRoundFallback(
+            roundActive = false,
+            endConfirmed = false,
+            positivelyLive = true,
+            roundElapsedMs = 180_000L
+        ))
+        assertFalse(PreFlyTiming.shouldIssueLongRoundFallback(
+            roundActive = true,
+            endConfirmed = true,
+            positivelyLive = true,
+            roundElapsedMs = 180_000L
+        ))
+        assertFalse(PreFlyTiming.shouldIssueLongRoundFallback(
+            roundActive = true,
+            endConfirmed = false,
+            positivelyLive = false,
+            roundElapsedMs = 180_000L
+        ))
+    }
+

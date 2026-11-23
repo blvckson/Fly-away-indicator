@@ -176,6 +176,13 @@ internal object PreFlyTiming {
     fun updatedHold(current: Int, evidence: Boolean): Int =
         if (evidence) min(8, current + 1) else max(0, current - 1)
 
+    /**
+     * Long-round confirmation is intentionally consecutive: one weak frame
+     * clears the streak instead of allowing separated hints to accumulate.
+     */
+    fun updatedLongRoundHold(current: Int, evidence: Boolean): Int =
+        if (evidence) min(3, current + 1) else 0
+
     /** Long-round warnings require three consecutive confirmations to reject noise. */
     fun requiredConfirmations(
         frameDeltaMs: Long,

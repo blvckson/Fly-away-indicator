@@ -14,7 +14,7 @@ import java.util.regex.Pattern
 internal object AviatorMultiplierTextPattern {
     // Seven integer digits cover the user's very-long-round examples (e.g. 1000004.09x).
     val pattern: Pattern = Pattern.compile(
-        "\\b\\d{1,7}(?:\\.\\d{1,3})?\\s*x\\b",
+        "(?<![\\d.])\\b\\d{1,7}(?:\\.\\d{1,3})?\\s*x\\b",
         Pattern.CASE_INSENSITIVE
     )
 }

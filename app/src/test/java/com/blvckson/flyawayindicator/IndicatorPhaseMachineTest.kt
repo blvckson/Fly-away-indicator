@@ -211,7 +211,7 @@ class IndicatorPhaseMachineTest {
     }
 
     @Test
-    fun longRoundFallbackCanWarnAfterTemporaryLiveDetectorLoss() {
+    fun consistencyFallbackCanWarnAfterTemporaryLiveDetectorLoss() {
         val machine = IndicatorPhaseMachine()
         machine.observeLive(true, false, 1_000L)
         machine.observeLive(false, false, 1_100L)
@@ -219,28 +219,43 @@ class IndicatorPhaseMachineTest {
         assertEquals(IndicatorPhase.BLACK, machine.observeLive(false, false, 1_300L))
         assertTrue(machine.isRoundActive)
 
-        assertEquals(IndicatorPhase.RED, machine.markLongRoundFallback(17_000L))
+        assertEquals(IndicatorPhase.RED, machine.markConsistencyFallback(2_000L))
         assertEquals(IndicatorPhase.RED, machine.phase)
     }
 
     @Test
-    fun longRoundFallbackIsOneShotAndCannotRearmBeforeConfirmedRoundEnd() {
-        val machine = IndicatorPhaseMachine(redVisibleDurationMs = 1_200L)
-        machine.observeLive(true, false, 1_000L)
-        assertEquals(IndicatorPhase.RED, machine.markLongRoundFallback(17_000L))
-        assertEquals(IndicatorPhase.BLACK, machine.observeLive(true, false, 18_200L))
-        assertEquals(IndicatorPhase.BLACK, machine.markLongRoundFallback(30_000L))
-        assertTrue(machine.isRoundActive)
-
-        machine.observeLive(false, true, 30_100L)
-        assertFalse(machine.isRoundActive)
-        assertEquals(IndicatorPhase.BLACK, machine.markLongRoundFallback(40_000L))
+    fun consistencyFallbackIsOneShotAcrossShortMediumAndLongDurations() {
+        val durations = listOf(2_000L, 6_000L, 17_000L, 180_000L)
+        for ((index, duration) in durations.withIndex()) {
+            val machine = IndicatorPhaseMachine(redVisibleDurationMs = 1_200L)
+            val startedAt = index * 300_000L + 1_000L
+            machine.observeLive(true, false, startedAt)
+            assertEquals(
+                IndicatorPhase.RED,
+                machine.markConsistencyFallback(startedAt + 1_000L)
+            )
+            assertEquals(
+                IndicatorPhase.BLACK,
+                machine.observeLive(true, false, startedAt + 2_200L)
+            )
+            assertEquals(
+                IndicatorPhase.BLACK,
+                machine.markConsistencyFallback(startedAt + duration + 10_000L)
+            )
+            assertTrue(machine.isRoundActive)
+            machine.observeLive(false, true, startedAt + duration + 20_000L)
+            assertFalse(machine.isRoundActive)
+            assertEquals(
+                IndicatorPhase.BLACK,
+                machine.markConsistencyFallback(startedAt + duration + 30_000L)
+            )
+        }
     }
 
     @Test
-    fun longRoundFallbackCannotIssueWithoutAnAcceptedActiveRound() {
+    fun consistencyFallbackCannotIssueWithoutAnAcceptedActiveRound() {
         val machine = IndicatorPhaseMachine()
-        assertEquals(IndicatorPhase.BLACK, machine.markLongRoundFallback(17_000L))
+        assertEquals(IndicatorPhase.BLACK, machine.markConsistencyFallback(2_000L))
         assertFalse(machine.isRoundActive)
     }
 

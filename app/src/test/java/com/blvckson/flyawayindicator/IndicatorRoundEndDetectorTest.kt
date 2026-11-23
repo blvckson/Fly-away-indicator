@@ -71,6 +71,23 @@ class IndicatorRoundEndDetectorTest {
     }
 
     @Test
+    fun cachedPreRoundOcrDoesNotCountAsPostRoundEndEvidence() {
+        val detector = IndicatorRoundEndDetector(maximumTextAgeMs = 5_000L)
+        detector.beginRound(planePresent = true, lastObservedTextAtMs = 10_000L)
+        val firstPostRoundSample = readyEvidence(10_100L)
+        detector.observeFrame(1_100L, 10_100L, false, firstPostRoundSample)
+
+        // 1.8 seconds of aircraft absence has elapsed, but there is still only one
+        // distinct post-round OCR sample; repeating the same cached sample is not enough.
+        detector.observeFrame(2_900L, 11_900L, false, firstPostRoundSample)
+        assertFalse(detector.shouldStartRedMultiplierProbe(2_900L, 11_900L, firstPostRoundSample))
+
+        val secondPostRoundSample = readyEvidence(11_900L)
+        detector.observeFrame(2_901L, 11_901L, false, secondPostRoundSample)
+        assertTrue(detector.shouldStartRedMultiplierProbe(2_901L, 11_901L, secondPostRoundSample))
+    }
+
+    @Test
     fun callbacksFromAnEarlierRoundAreIgnoredAfterReset() {
         val detector = IndicatorRoundEndDetector()
         establishCandidate(detector)

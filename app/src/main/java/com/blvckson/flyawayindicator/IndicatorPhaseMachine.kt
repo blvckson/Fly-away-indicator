@@ -34,8 +34,9 @@ internal object LiveStartPolicy {
  *
  * A round can issue one GREEN -> RED transition only. Temporary loss of live-screen
  * evidence may hide GREEN, but it never ends the round or releases the alert lock.
- * Only affirmative round-end OCR evidence finalizes the round and permits a new
- * round to arm. This deliberately fails closed rather than risking a duplicate alert.
+ * Only a confirmed round-end signal from the service finalizes the round: either
+ * explicit "FLEW AWAY" OCR or the independently corroborated result-state fallback.
+ * Detector loss alone never releases the lock. This fails closed against duplicate alerts.
  */
 internal class IndicatorPhaseMachine(
     private val missingFramesToHide: Int = 3,
@@ -55,7 +56,7 @@ internal class IndicatorPhaseMachine(
     var roundStartGeneration: Long = 0L
         private set
 
-    /** Increments once when affirmative end evidence finalizes an active round. */
+    /** Increments once when a confirmed round-end signal finalizes an active round. */
     var roundEndGeneration: Long = 0L
         private set
 
@@ -74,8 +75,9 @@ internal class IndicatorPhaseMachine(
     ): IndicatorPhase {
         if (!endConfirmed) endMarkerLatched = false
 
-        // Detector/OCR misses are not proof that a flight ended. The explicit
-        // "FLEW AWAY" end marker is the only event that releases this round's lock.
+        // Detector/OCR misses alone are not proof that a flight ended. The service
+        // supplies endConfirmed only for explicit FLEW AWAY OCR or a corroborated
+        // final-result fallback; that confirmed signal releases this round's lock.
         if (roundActive && endConfirmed && !endMarkerLatched) {
             endMarkerLatched = true
             finishRound()
@@ -92,7 +94,7 @@ internal class IndicatorPhaseMachine(
         }
 
         if (phase == IndicatorPhase.BLACK) {
-            // After RED, remain BLACK until the round-end marker is positively seen.
+            // After RED, remain BLACK until a confirmed round-end signal is seen.
             if (awaitingNextRound || !visualLive) return phase
 
             clearMissingLive()

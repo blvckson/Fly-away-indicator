@@ -1,60 +1,38 @@
 package com.blvckson.flyawayindicator
 
-import java.util.Locale
-
 /**
- * Conservative fallback for a missed "FLEW AWAY" OCR event.
+ * Confirms the end of a round when the explicit "FLEW AWAY" OCR event was missed.
  *
- * Detector loss alone is never treated as a round end. The same round must
- * first have shown an aircraft; the aircraft must then be absent continuously,
- * and fresh OCR must repeatedly confirm the verified result/BET/AUTO layout
- * with CASH OUT absent. A colour-only final-multiplier read is not required.
+ * The aircraft must have been observed in this round, then remain absent for
+ * 2.4 seconds, and fresh OCR must confirm the verified multiplier + BET/AUTO
+ * ready layout on two distinct observations with CASH OUT absent. This avoids
+ * relying on a separate red-only OCR pass to read the final multiplier.
  */
 internal class IndicatorRoundEndDetector(
     private val requiredPlaneAbsenceMs: Long = 2_400L,
-    private val requiredFinalResultStableMs: Long = 850L,
     private val maximumTextAgeMs: Long = 1_200L,
-    private val requiredBetReadyTextSamples: Int = 2,
-    private val requiredFinalMultiplierSamples: Int = 3,
-    private val minimumProbeIntervalMs: Long = 450L
+    private val requiredBetReadyTextSamples: Int = 2
 ) {
     private var planeSeenInRound = false
     private var planeMissingSinceMs = 0L
     private var lastTextObservedAtMs = 0L
     private var betReadyTextSamples = 0
-    private var lastProbeAtMs = 0L
-
-    private var lastFinalMultiplier = ""
-    private var finalMultiplierSamples = 0
-    private var finalMultiplierSinceMs = 0L
-    private var lastFinalMultiplierAtMs = 0L
-
-    /** Late OCR callbacks from a previous round are ignored after reset. */
-    @Volatile
-    var generation: Long = 0L
-        private set
 
     init {
         require(requiredPlaneAbsenceMs >= 1L)
-        require(requiredFinalResultStableMs >= 1L)
         require(maximumTextAgeMs >= 1L)
-        require(requiredBetReadyTextSamples >= 1)
-        require(requiredFinalMultiplierSamples >= 2)
-        require(minimumProbeIntervalMs >= 1L)
+        require(requiredBetReadyTextSamples >= 2)
     }
 
     @Synchronized
     fun reset() {
-        generation++
         planeSeenInRound = false
         planeMissingSinceMs = 0L
         lastTextObservedAtMs = 0L
         betReadyTextSamples = 0
-        lastProbeAtMs = 0L
-        clearFinalMultiplier()
     }
 
-    /** Seed current round identity without counting pre-round OCR as result text. */
+    /** Seed identity from the accepted live frame; pre-round OCR is not counted. */
     @Synchronized
     fun beginRound(planePresent: Boolean, lastObservedTextAtMs: Long) {
         reset()
@@ -73,89 +51,33 @@ internal class IndicatorRoundEndDetector(
             if (planeMissingSinceMs > 0L) {
                 planeMissingSinceMs = 0L
                 betReadyTextSamples = 0
-                clearFinalMultiplier()
             }
             planeSeenInRound = true
         } else if (planeSeenInRound && planeMissingSinceMs == 0L) {
             planeMissingSinceMs = nowElapsedMs
             betReadyTextSamples = 0
-            clearFinalMultiplier()
         }
 
-        if (evidence.observedAtMillis > 0L &&
-            evidence.observedAtMillis != lastTextObservedAtMs
-        ) {
+        // Only strictly newer OCR results count. A delayed callback or repeatedly
+        // reused cached frame cannot manufacture multiple result-screen samples.
+        if (evidence.observedAtMillis > lastTextObservedAtMs) {
             lastTextObservedAtMs = evidence.observedAtMillis
             if (isBetReadyEvidence(evidence) && isTextFresh(nowWallMs, evidence)) {
                 betReadyTextSamples =
                     (betReadyTextSamples + 1).coerceAtMost(requiredBetReadyTextSamples + 1)
             } else {
                 betReadyTextSamples = 0
-                clearFinalMultiplier()
             }
         }
     }
 
-    /** Start red-only OCR only after sustained aircraft loss and repeated BET evidence. */
-    @Synchronized
-    fun shouldStartRedMultiplierProbe(
-        nowElapsedMs: Long,
-        nowWallMs: Long,
-        evidence: AviatorTextEvidence
-    ): Boolean {
-        if (!isEligibleForRoundEnd(nowElapsedMs, nowWallMs, evidence)) return false
-        if (lastProbeAtMs > 0L && nowElapsedMs - lastProbeAtMs < minimumProbeIntervalMs) {
-            return false
-        }
-        lastProbeAtMs = nowElapsedMs
-        return true
-    }
-
-    @Synchronized
-    fun recordRedMultiplier(
-        value: String,
-        nowElapsedMs: Long,
-        nowWallMs: Long,
-        expectedGeneration: Long
-    ) {
-        if (expectedGeneration != generation || value.isBlank() ||
-            !planeSeenInRound || planeMissingSinceMs == 0L ||
-            betReadyTextSamples < requiredBetReadyTextSamples ||
-            nowElapsedMs - planeMissingSinceMs < requiredPlaneAbsenceMs ||
-            nowWallMs < lastTextObservedAtMs ||
-            nowWallMs - lastTextObservedAtMs > maximumTextAgeMs
-        ) return
-
-        val normalized = value.trim().lowercase(Locale.US)
-        if (lastFinalMultiplier != normalized ||
-            (lastFinalMultiplierAtMs > 0L &&
-                nowElapsedMs - lastFinalMultiplierAtMs > maximumTextAgeMs)
-        ) {
-            lastFinalMultiplier = normalized
-            finalMultiplierSamples = 1
-            finalMultiplierSinceMs = nowElapsedMs
-        } else {
-            finalMultiplierSamples =
-                (finalMultiplierSamples + 1).coerceAtMost(requiredFinalMultiplierSamples + 1)
-        }
-        lastFinalMultiplierAtMs = nowElapsedMs
-    }
-
     /**
-     * A round end is confirmed by sustained aircraft absence plus two distinct,
-     * fresh, verified BET/AUTO-ready OCR observations with CASH OUT absent.
-     * This avoids permanently blocking the next round when red-only OCR misses
-     * the final multiplier, while the 2.4-second absence protects against brief
-     * aircraft-detector dropouts during a live long round.
+     * Confirm only after sustained aircraft absence and repeated, fresh result UI.
+     * Brief detector loss, stale/unrelated text, or a visible CASH OUT control cannot
+     * release the per-round alert lock.
      */
     @Synchronized
     fun isConfirmed(
-        nowElapsedMs: Long,
-        nowWallMs: Long,
-        evidence: AviatorTextEvidence
-    ): Boolean = isEligibleForRoundEnd(nowElapsedMs, nowWallMs, evidence)
-
-    private fun isEligibleForRoundEnd(
         nowElapsedMs: Long,
         nowWallMs: Long,
         evidence: AviatorTextEvidence
@@ -179,13 +101,6 @@ internal class IndicatorRoundEndDetector(
         evidence.observedAtMillis > 0L &&
             nowWallMs >= evidence.observedAtMillis &&
             nowWallMs - evidence.observedAtMillis <= maximumTextAgeMs
-
-    private fun clearFinalMultiplier() {
-        lastFinalMultiplier = ""
-        finalMultiplierSamples = 0
-        finalMultiplierSinceMs = 0L
-        lastFinalMultiplierAtMs = 0L
-    }
 }
 
 /** Discard temporal pre-fly samples until two consecutive live observations return. */

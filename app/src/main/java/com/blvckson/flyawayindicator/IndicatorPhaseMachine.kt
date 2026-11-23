@@ -30,15 +30,6 @@ internal object LiveStartPolicy {
 }
 
 /**
- * Owns one indicator lifecycle per verified round.
- *
- * A round can issue at most one GREEN -> RED transition. Hiding the short RED
- * display never rearms GREEN. A round is released only by an explicit end marker
- * or by live-screen absence that persists for both a minimum frame count and a
- * minimum elapsed duration, so transient detector misses cannot unlock another
- * alert in the same flight.
- */
-/**
  * Owns one alert lifecycle per positively identified game round.
  *
  * A round can issue one GREEN -> RED transition only. Temporary loss of live-screen

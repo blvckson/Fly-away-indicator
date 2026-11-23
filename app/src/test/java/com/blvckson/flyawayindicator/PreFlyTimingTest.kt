@@ -160,13 +160,14 @@ class PreFlyTimingTest {
     }
 
     @Test
-    fun longRoundConfirmationRequiresThreeConsecutiveEvidenceFrames() {
+    fun longRoundConfirmationSurvivesOneWeakCapture() {
         assertEquals(1, PreFlyTiming.updatedLongRoundHold(0, true))
         assertEquals(2, PreFlyTiming.updatedLongRoundHold(1, true))
-        assertEquals(0, PreFlyTiming.updatedLongRoundHold(2, false))
-        assertEquals(1, PreFlyTiming.updatedLongRoundHold(0, true))
+        assertEquals(1, PreFlyTiming.updatedLongRoundHold(2, false))
+        assertEquals(2, PreFlyTiming.updatedLongRoundHold(1, true))
         assertEquals(3, PreFlyTiming.updatedLongRoundHold(2, true))
         assertEquals(3, PreFlyTiming.updatedLongRoundHold(3, true))
+        assertEquals(2, PreFlyTiming.requiredConfirmations(100L, 2, longRound = true))
     }
 
     @Test
@@ -206,6 +207,38 @@ class PreFlyTimingTest {
             roundFrameCount = 1_800,
             flightProgress = 0.42,
             roundElapsedMs = 180_000L
+        ))
+    }
+
+    @Test
+    fun longRoundAcceptsModerateVisualAndAircraftMotionEvidence() {
+        val signals = PreFlySignals(
+            trend = 0.90, central = 0.15, plane = 0.20, movement = 0.08, multiplier = 0.0
+        )
+        val candidate = PreFlyTiming.candidate(signals)
+
+        assertTrue(PreFlyTiming.isEvidence(
+            signals, candidate, 0.42, 0.24,
+            baselineSampleCount = 4,
+            roundFrameCount = 180,
+            flightProgress = 0.14,
+            roundElapsedMs = PreFlyTiming.LONG_ROUND_THRESHOLD_MS
+        ))
+    }
+
+    @Test
+    fun longRoundCanUseMultiplierAppearanceAsAlternativeCorroboration() {
+        val signals = PreFlySignals(
+            trend = 0.90, central = 0.15, plane = 0.15, movement = 0.0, multiplier = 0.20
+        )
+        val candidate = PreFlyTiming.candidate(signals)
+
+        assertTrue(PreFlyTiming.isEvidence(
+            signals, candidate, 0.42, 0.23,
+            baselineSampleCount = 4,
+            roundFrameCount = 180,
+            flightProgress = 0.14,
+            roundElapsedMs = PreFlyTiming.LONG_ROUND_THRESHOLD_MS
         ))
     }
 

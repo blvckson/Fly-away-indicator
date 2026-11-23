@@ -38,16 +38,22 @@ class IndicatorPhaseMachineTest {
     fun detectorConfirmedLiveScreenStartsGreenWithoutAnotherGate() {
         val machine = IndicatorPhaseMachine()
         assertEquals(IndicatorPhase.BLACK, machine.phase)
-        assertEquals(IndicatorPhase.GREEN, machine.observeLive(visualLive = true, endConfirmed = false))
+        assertEquals(
+            IndicatorPhase.GREEN,
+            machine.observeLive(visualLive = true, endConfirmed = false, nowMs = 1_000L)
+        )
     }
 
     @Test
-    fun redStaysLatchedUntilTheRoundEnds() {
+    fun redStaysLatchedForItsDisplayWindow() {
         val machine = IndicatorPhaseMachine()
-        machine.observeLive(visualLive = true, endConfirmed = false)
-        machine.markPreFlyAway()
+        machine.observeLive(visualLive = true, endConfirmed = false, nowMs = 1_000L)
+        machine.markPreFlyAway(nowMs = 1_100L)
         assertEquals(IndicatorPhase.RED, machine.phase)
-        assertEquals(IndicatorPhase.RED, machine.observeLive(visualLive = true, endConfirmed = false))
+        assertEquals(
+            IndicatorPhase.RED,
+            machine.observeLive(visualLive = true, endConfirmed = false, nowMs = 2_299L)
+        )
     }
 
     @Test
@@ -67,7 +73,75 @@ class IndicatorPhaseMachineTest {
     }
 
     @Test
-    fun hiddenRedDoesNotImmediatelyTurnGreenAgainDuringTheSameRound() {
+    fun repeatedPreFlyCallsCannotIssueAnotherRedInTheSameRound() {
+        val machine = IndicatorPhaseMachine(redVisibleDurationMs = 1_200L)
+        machine.observeLive(visualLive = true, endConfirmed = false, nowMs = 1_000L)
+        machine.markPreFlyAway(nowMs = 1_100L)
+        machine.markPreFlyAway(nowMs = 1_150L)
+        assertEquals(IndicatorPhase.RED, machine.phase)
+
+        assertEquals(
+            IndicatorPhase.BLACK,
+            machine.observeLive(visualLive = true, endConfirmed = false, nowMs = 2_300L)
+        )
+        assertEquals(IndicatorPhase.BLACK, machine.markPreFlyAway(nowMs = 2_400L))
+        assertEquals(
+            IndicatorPhase.BLACK,
+            machine.observeLive(visualLive = true, endConfirmed = false, nowMs = 18_000L)
+        )
+        assertEquals(IndicatorPhase.BLACK, machine.markPreFlyAway(nowMs = 18_100L))
+        assertEquals(0L, machine.roundEndGeneration)
+    }
+
+    @Test
+    fun threeBriefMissingFramesDoNotEndAnActiveRound() {
+        val machine = IndicatorPhaseMachine(missingLiveDurationMs = 1_800L)
+        machine.observeLive(visualLive = true, endConfirmed = false, nowMs = 1_000L)
+
+        assertEquals(
+            IndicatorPhase.GREEN,
+            machine.observeLive(visualLive = false, endConfirmed = false, nowMs = 1_100L)
+        )
+        assertEquals(
+            IndicatorPhase.GREEN,
+            machine.observeLive(visualLive = false, endConfirmed = false, nowMs = 1_200L)
+        )
+        assertEquals(
+            IndicatorPhase.GREEN,
+            machine.observeLive(visualLive = false, endConfirmed = false, nowMs = 1_300L)
+        )
+        assertEquals(
+            IndicatorPhase.GREEN,
+            machine.observeLive(visualLive = true, endConfirmed = false, nowMs = 1_400L)
+        )
+        assertEquals(0L, machine.roundEndGeneration)
+    }
+
+    @Test
+    fun sustainedMissingLiveEvidenceEndsTheRoundOnlyAfterTheTimeAndFrameGates() {
+        val machine = IndicatorPhaseMachine(
+            missingFramesToReset = 3,
+            missingLiveDurationMs = 1_800L
+        )
+        machine.observeLive(visualLive = true, endConfirmed = false, nowMs = 1_000L)
+
+        assertEquals(
+            IndicatorPhase.GREEN,
+            machine.observeLive(visualLive = false, endConfirmed = false, nowMs = 1_100L)
+        )
+        assertEquals(
+            IndicatorPhase.GREEN,
+            machine.observeLive(visualLive = false, endConfirmed = false, nowMs = 2_000L)
+        )
+        assertEquals(
+            IndicatorPhase.BLACK,
+            machine.observeLive(visualLive = false, endConfirmed = false, nowMs = 2_900L)
+        )
+        assertEquals(1L, machine.roundEndGeneration)
+    }
+
+    @Test
+    fun hiddenRedDoesNotRearmGreenDuringTheSameLongRound() {
         val machine = IndicatorPhaseMachine(redVisibleDurationMs = 1_200L)
         machine.observeLive(visualLive = true, endConfirmed = false, nowMs = 1_000L)
         machine.markPreFlyAway(nowMs = 2_000L)
@@ -76,120 +150,125 @@ class IndicatorPhaseMachineTest {
             IndicatorPhase.BLACK,
             machine.observeLive(visualLive = true, endConfirmed = false, nowMs = 3_200L)
         )
+        machine.observeLive(visualLive = false, endConfirmed = false, nowMs = 3_300L)
+        machine.observeLive(visualLive = false, endConfirmed = false, nowMs = 3_500L)
+        machine.observeLive(visualLive = false, endConfirmed = false, nowMs = 3_700L)
         assertEquals(
             IndicatorPhase.BLACK,
-            machine.observeLive(visualLive = true, endConfirmed = false, nowMs = 3_300L)
+            machine.observeLive(visualLive = true, endConfirmed = false, nowMs = 3_800L)
         )
-        assertEquals(
-            IndicatorPhase.BLACK,
-            machine.observeLive(visualLive = false, endConfirmed = false, nowMs = 3_400L)
-        )
-        assertEquals(
-            IndicatorPhase.BLACK,
-            machine.observeLive(visualLive = false, endConfirmed = false, nowMs = 3_500L)
-        )
-        assertEquals(
-            IndicatorPhase.BLACK,
-            machine.observeLive(visualLive = false, endConfirmed = false, nowMs = 3_600L)
-        )
-        assertEquals(
-            IndicatorPhase.GREEN,
-            machine.observeLive(visualLive = true, endConfirmed = false, nowMs = 3_700L)
-        )
+        assertEquals(IndicatorPhase.BLACK, machine.markPreFlyAway(nowMs = 18_000L))
+        assertEquals(0L, machine.roundEndGeneration)
     }
 
     @Test
-    fun threeConsecutiveMissingFramesReturnRedToBlack() {
-        val machine = IndicatorPhaseMachine()
-        machine.observeLive(visualLive = true, endConfirmed = false)
-        machine.markPreFlyAway()
-        assertEquals(IndicatorPhase.RED, machine.observeLive(visualLive = false, endConfirmed = false))
-        assertEquals(IndicatorPhase.RED, machine.observeLive(visualLive = false, endConfirmed = false))
-        assertEquals(IndicatorPhase.BLACK, machine.observeLive(visualLive = false, endConfirmed = false))
+    fun naturalRoundEndAfterRedExpiresResetsTheAlertLockExactlyOnce() {
+        val machine = IndicatorPhaseMachine(redVisibleDurationMs = 1_200L)
+        machine.observeLive(visualLive = true, endConfirmed = false, nowMs = 1_000L)
+        machine.markPreFlyAway(nowMs = 1_100L)
+        assertEquals(
+            IndicatorPhase.BLACK,
+            machine.observeLive(visualLive = true, endConfirmed = false, nowMs = 2_300L)
+        )
+
+        machine.observeLive(visualLive = false, endConfirmed = false, nowMs = 2_400L)
+        machine.observeLive(visualLive = false, endConfirmed = false, nowMs = 3_300L)
+        assertEquals(
+            IndicatorPhase.BLACK,
+            machine.observeLive(visualLive = false, endConfirmed = false, nowMs = 4_200L)
+        )
+        assertEquals(1L, machine.roundEndGeneration)
+
+        assertEquals(
+            IndicatorPhase.GREEN,
+            machine.observeLive(visualLive = true, endConfirmed = false, nowMs = 4_300L)
+        )
+        assertEquals(IndicatorPhase.RED, machine.markPreFlyAway(nowMs = 4_400L))
+        assertEquals(1L, machine.roundEndGeneration)
     }
 
     @Test
     fun explicitRoundEndReturnsToBlackImmediately() {
         val machine = IndicatorPhaseMachine()
-        machine.observeLive(visualLive = true, endConfirmed = false)
-        machine.markPreFlyAway()
-        assertEquals(IndicatorPhase.BLACK, machine.observeLive(visualLive = false, endConfirmed = true))
+        machine.observeLive(visualLive = true, endConfirmed = false, nowMs = 1_000L)
+        machine.markPreFlyAway(nowMs = 1_100L)
+        assertEquals(
+            IndicatorPhase.BLACK,
+            machine.observeLive(visualLive = false, endConfirmed = true, nowMs = 1_200L)
+        )
+        assertEquals(1L, machine.roundEndGeneration)
     }
 
     @Test
-    fun freshLiveEvidenceOverridesStaleOcrEndText() {
+    fun explicitEndAfterRedExpiryStillFinalizesTheRound() {
+        val machine = IndicatorPhaseMachine(redVisibleDurationMs = 1_200L)
+        machine.observeLive(visualLive = true, endConfirmed = false, nowMs = 1_000L)
+        machine.markPreFlyAway(nowMs = 1_100L)
+        machine.observeLive(visualLive = true, endConfirmed = false, nowMs = 2_300L)
+        assertEquals(IndicatorPhase.BLACK, machine.phase)
+
+        assertEquals(
+            IndicatorPhase.BLACK,
+            machine.observeLive(visualLive = true, endConfirmed = true, nowMs = 2_400L)
+        )
+        assertEquals(1L, machine.roundEndGeneration)
+        assertEquals(
+            IndicatorPhase.GREEN,
+            machine.observeLive(visualLive = true, endConfirmed = false, nowMs = 2_500L)
+        )
+    }
+
+    @Test
+    fun freshLiveEvidenceOverridesStaleOcrEndTextWhenNoRoundIsActive() {
         val machine = IndicatorPhaseMachine()
-        assertEquals(IndicatorPhase.GREEN, machine.observeLive(visualLive = true, endConfirmed = true))
+        assertEquals(
+            IndicatorPhase.GREEN,
+            machine.observeLive(visualLive = true, endConfirmed = true, nowMs = 1_000L)
+        )
     }
 
     @Test
     fun activeRoundEndOverridesStaleLivePixelsImmediately() {
         val machine = IndicatorPhaseMachine()
-        machine.observeLive(visualLive = true, endConfirmed = false)
-        machine.markPreFlyAway()
+        machine.observeLive(visualLive = true, endConfirmed = false, nowMs = 1_000L)
+        machine.markPreFlyAway(nowMs = 1_100L)
         assertEquals(
             IndicatorPhase.BLACK,
-            machine.observeLive(visualLive = true, endConfirmed = true)
+            machine.observeLive(visualLive = true, endConfirmed = true, nowMs = 1_200L)
         )
+        assertEquals(1L, machine.roundEndGeneration)
     }
 
     @Test
     fun staleEndMarkerDoesNotFlickerTheNewRoundBackToBlack() {
         val machine = IndicatorPhaseMachine()
-        machine.observeLive(visualLive = true, endConfirmed = false)
-        machine.markPreFlyAway()
-        assertEquals(
-            IndicatorPhase.BLACK,
-            machine.observeLive(visualLive = false, endConfirmed = true)
-        )
-        assertEquals(
-            IndicatorPhase.GREEN,
-            machine.observeLive(visualLive = true, endConfirmed = true)
-        )
-        assertEquals(
-            IndicatorPhase.GREEN,
-            machine.observeLive(visualLive = true, endConfirmed = true)
-        )
-    }
-
-    @Test
-    fun aNewRoundCanTurnGreenAfterThePreviousRoundResets() {
-        val machine = IndicatorPhaseMachine()
-        machine.observeLive(visualLive = true, endConfirmed = false)
-        machine.markPreFlyAway()
-        machine.observeLive(visualLive = false, endConfirmed = true)
-        assertEquals(IndicatorPhase.BLACK, machine.phase)
-        assertEquals(IndicatorPhase.GREEN, machine.observeLive(visualLive = true, endConfirmed = true))
-    }
-
-    @Test
-    fun longRoundCanRearmOnceAfterAnEarlyRedAlertExpires() {
-        val machine = IndicatorPhaseMachine(redVisibleDurationMs = 1_200L)
         machine.observeLive(visualLive = true, endConfirmed = false, nowMs = 1_000L)
         machine.markPreFlyAway(nowMs = 1_100L)
-
-        assertEquals(
-            IndicatorPhase.BLACK,
-            machine.observeLive(visualLive = true, endConfirmed = false, nowMs = 2_300L)
-        )
-        assertTrue(machine.isAwaitingNextRound)
-        assertTrue(machine.rearmForLongRound())
-        assertEquals(IndicatorPhase.GREEN, machine.phase)
-        assertFalse(machine.isAwaitingNextRound)
-        assertFalse(machine.rearmForLongRound())
-    }
-
-    @Test
-    fun longRoundCannotRearmAfterAnActualRoundEnd() {
-        val machine = IndicatorPhaseMachine()
-        machine.observeLive(visualLive = true, endConfirmed = false, nowMs = 1_000L)
-        machine.markPreFlyAway(nowMs = 1_100L)
-
         assertEquals(
             IndicatorPhase.BLACK,
             machine.observeLive(visualLive = false, endConfirmed = true, nowMs = 1_200L)
         )
-        assertFalse(machine.isAwaitingNextRound)
-        assertFalse(machine.rearmForLongRound())
+        assertEquals(
+            IndicatorPhase.GREEN,
+            machine.observeLive(visualLive = true, endConfirmed = true, nowMs = 1_300L)
+        )
+        assertEquals(
+            IndicatorPhase.GREEN,
+            machine.observeLive(visualLive = true, endConfirmed = true, nowMs = 1_400L)
+        )
+    }
+
+    @Test
+    fun aNewRoundCanIssueOneNewRedAfterThePreviousRoundResets() {
+        val machine = IndicatorPhaseMachine()
+        machine.observeLive(visualLive = true, endConfirmed = false, nowMs = 1_000L)
+        machine.markPreFlyAway(nowMs = 1_100L)
+        machine.observeLive(visualLive = false, endConfirmed = true, nowMs = 1_200L)
+        assertEquals(IndicatorPhase.BLACK, machine.phase)
+        assertEquals(
+            IndicatorPhase.GREEN,
+            machine.observeLive(visualLive = true, endConfirmed = false, nowMs = 1_300L)
+        )
+        assertEquals(IndicatorPhase.RED, machine.markPreFlyAway(nowMs = 1_400L))
     }
 }

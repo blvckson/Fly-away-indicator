@@ -29,29 +29,38 @@ internal object LiveStartPolicy {
     }
 }
 
+/**
+ * Owns one indicator lifecycle per verified round.
+ *
+ * A round can issue at most one GREEN -> RED transition. Hiding the short RED
+ * display never rearms GREEN. A round is released only by an explicit end marker
+ * or by live-screen absence that persists for both a minimum frame count and a
+ * minimum elapsed duration, so transient detector misses cannot unlock another
+ * alert in the same flight.
+ */
 internal class IndicatorPhaseMachine(
     private val missingFramesToReset: Int = 3,
-    private val redVisibleDurationMs: Long = 1_200L
+    private val redVisibleDurationMs: Long = 1_200L,
+    private val missingLiveDurationMs: Long = 1_800L
 ) {
     var phase: IndicatorPhase = IndicatorPhase.BLACK
         private set
 
     private var missingLiveFrames = 0
+    private var missingLiveSinceMs: Long? = null
     private var redStartedAtMs = 0L
-    // Once the brief RED alert is hidden, keep BLACK during the same live round.
-    // Re-arm only after the old live scene disappears or an explicit end marker.
     private var awaitingNextRound = false
-    // OCR can retain "FLEW AWAY" for a short period after the next round appears.
-    // Consume each end-marker episode once so it resets the old round without
-    // repeatedly pushing the newly detected round back to BLACK.
     private var endMarkerLatched = false
+    private var redIssuedThisRound = false
 
-    val isAwaitingNextRound: Boolean
-        get() = awaitingNextRound
+    /** Increments exactly once whenever an active round is genuinely finalized. */
+    var roundEndGeneration: Long = 0L
+        private set
 
     init {
         require(missingFramesToReset >= 1)
         require(redVisibleDurationMs >= 1L)
+        require(missingLiveDurationMs >= 1L)
     }
 
     fun observeLive(
@@ -61,41 +70,38 @@ internal class IndicatorPhaseMachine(
     ): IndicatorPhase {
         if (!endConfirmed) endMarkerLatched = false
 
-        // An end marker must end an already active round even if the detector
-        // still sees stale aircraft/UI pixels in that same captured frame.
-        if (phase != IndicatorPhase.BLACK && endConfirmed && !endMarkerLatched) {
+        val roundInProgress = phase != IndicatorPhase.BLACK ||
+            awaitingNextRound || redIssuedThisRound
+
+        // A verified end marker can finish a round immediately, including after
+        // the brief RED display has already returned to BLACK.
+        if (roundInProgress && endConfirmed && !endMarkerLatched) {
             endMarkerLatched = true
-            resetPhase()
+            finishRound()
             return phase
         }
 
-        // RED is a brief alert, not a state that should remain visible until the
-        // crash/end marker. Hide it after the alert window, then hold BLACK until
-        // the current live scene has actually ended so it cannot flicker GREEN.
-        if (phase == IndicatorPhase.RED && nowMs - redStartedAtMs >= redVisibleDurationMs) {
+        // RED is a brief visual alert. Its expiry does not release the per-round
+        // alert lock or allow GREEN to reappear in the same flight.
+        if (phase == IndicatorPhase.RED &&
+            nowMs - redStartedAtMs >= redVisibleDurationMs
+        ) {
             phase = IndicatorPhase.BLACK
             awaitingNextRound = true
-            missingLiveFrames = 0
         }
 
-        // In BLACK, fresh live evidence starts a round only when the previous
-        // round has been cleared. While awaitingNextRound, require consecutive
-        // non-live frames before accepting the next live scene.
         if (phase == IndicatorPhase.BLACK) {
             if (awaitingNextRound) {
                 if (visualLive) {
-                    missingLiveFrames = 0
-                } else {
-                    missingLiveFrames++
-                    if (missingLiveFrames >= missingFramesToReset) {
-                        awaitingNextRound = false
-                        missingLiveFrames = 0
-                    }
+                    clearMissingLive()
+                } else if (hasSustainedMissingLive(nowMs)) {
+                    finishRound()
                 }
                 return phase
             }
+
             if (visualLive) {
-                missingLiveFrames = 0
+                clearMissingLive()
                 phase = IndicatorPhase.GREEN
                 if (endConfirmed) endMarkerLatched = true
             }
@@ -103,29 +109,21 @@ internal class IndicatorPhaseMachine(
         }
 
         if (visualLive) {
-            missingLiveFrames = 0
-        } else {
-            missingLiveFrames++
-            if (missingLiveFrames >= missingFramesToReset) resetPhase()
+            clearMissingLive()
+        } else if (hasSustainedMissingLive(nowMs)) {
+            finishRound()
         }
         return phase
     }
 
     /**
-     * Restore GREEN once, only when the same verified live round is still present.
-     * ScreenMonitorService applies the long-round time and one-rearm-per-round gates.
+     * RED can be issued only once between genuine round starts/ends.
+     * Repeated evidence, delayed callbacks, or BLACK after the alert window
+     * cannot issue a second alert for the same round.
      */
-    fun rearmForLongRound(): Boolean {
-        if (phase != IndicatorPhase.BLACK || !awaitingNextRound) return false
-        phase = IndicatorPhase.GREEN
-        redStartedAtMs = 0L
-        awaitingNextRound = false
-        missingLiveFrames = 0
-        return true
-    }
-
     fun markPreFlyAway(nowMs: Long = System.nanoTime() / 1_000_000L): IndicatorPhase {
-        if (phase == IndicatorPhase.GREEN) {
+        if (phase == IndicatorPhase.GREEN && !redIssuedThisRound) {
+            redIssuedThisRound = true
             phase = IndicatorPhase.RED
             redStartedAtMs = nowMs
         }
@@ -133,15 +131,35 @@ internal class IndicatorPhaseMachine(
     }
 
     fun reset() {
-        resetPhase()
-        endMarkerLatched = false
-        awaitingNextRound = false
-    }
-
-    private fun resetPhase() {
         phase = IndicatorPhase.BLACK
-        missingLiveFrames = 0
+        clearMissingLive()
         redStartedAtMs = 0L
         awaitingNextRound = false
+        endMarkerLatched = false
+        redIssuedThisRound = false
+    }
+
+    private fun hasSustainedMissingLive(nowMs: Long): Boolean {
+        missingLiveFrames++
+        if (missingLiveSinceMs == null) missingLiveSinceMs = nowMs
+        val missingDuration = (nowMs - (missingLiveSinceMs ?: nowMs)).coerceAtLeast(0L)
+        return missingLiveFrames >= missingFramesToReset &&
+            missingDuration >= missingLiveDurationMs
+    }
+
+    private fun clearMissingLive() {
+        missingLiveFrames = 0
+        missingLiveSinceMs = null
+    }
+
+    private fun finishRound() {
+        val hadRound = phase != IndicatorPhase.BLACK ||
+            awaitingNextRound || redIssuedThisRound
+        phase = IndicatorPhase.BLACK
+        clearMissingLive()
+        redStartedAtMs = 0L
+        awaitingNextRound = false
+        redIssuedThisRound = false
+        if (hadRound) roundEndGeneration++
     }
 }

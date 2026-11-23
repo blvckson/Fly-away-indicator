@@ -132,27 +132,57 @@ internal object PreFlyTiming {
         // path. Long rounds need a larger relative rise and corroboration from
         // actual visual change plus aircraft motion or multiplier appearance.
         // This path has no upper time limit, so very long flights use the same model.
+        // The long-round path remains separate from the proven short/medium path,
+        // but it must tolerate ordinary capture variability. In particular, one
+        // slightly weak aircraft-motion or visual sample must not make a whole
+        // long round ineligible for its only warning.
+        val longTrendEvidence = signals.trend >= 0.58
+        val longCentralEvidence = signals.central >= 0.10
+        val longPlaneEvidence = signals.plane >= 0.08
+        val longMovementEvidence = signals.movement >= 0.06
+        val longMultiplierEvidence = signals.multiplier >= 0.10
+        val longEvidenceCount =
+            (if (longTrendEvidence) 1 else 0) +
+                (if (longCentralEvidence) 1 else 0) +
+                (if (longPlaneEvidence) 1 else 0) +
+                (if (longMovementEvidence) 1 else 0) +
+                (if (longMultiplierEvidence) 1 else 0)
+        val longPairedEvidence =
+            (longTrendEvidence && (longCentralEvidence || longPlaneEvidence ||
+                longMovementEvidence || longMultiplierEvidence)) ||
+                (longCentralEvidence && (longPlaneEvidence || longMovementEvidence ||
+                    longMultiplierEvidence)) ||
+                (longMovementEvidence && (longPlaneEvidence || longMultiplierEvidence)) ||
+                (longPlaneEvidence && longMultiplierEvidence)
+
         val longRoundEvidence = roundElapsedMs >= LONG_ROUND_THRESHOLD_MS &&
             baselineSampleCount >= 2 &&
             roundFrameCount >= 16 &&
-            flightProgress >= 0.18 &&
-            candidate >= max(0.42, baselineScore * 1.34) &&
-            baselineRise >= 0.075 &&
-            smoothedScore >= max(0.46, baselineScore + 0.06) &&
-            count >= 3 &&
+            flightProgress >= 0.12 &&
+            candidate >= max(0.34, baselineScore * 1.20) &&
+            baselineRise >= 0.04 &&
+            smoothedScore >= max(0.40, baselineScore + 0.035) &&
+            longEvidenceCount >= 2 &&
+            longPairedEvidence &&
             hasLongRoundCorroboration(signals)
 
-        return pairedEvidence &&
-            (fastShortRoundEvidence || normalEvidence || longRoundEvidence)
+        return if (roundElapsedMs >= LONG_ROUND_THRESHOLD_MS) {
+            longRoundEvidence
+        } else {
+            pairedEvidence && (fastShortRoundEvidence || normalEvidence)
+        }
     }
 
     private fun hasLongRoundCorroboration(signals: PreFlySignals): Boolean {
-        val visualChange = signals.trend >= 0.62 || signals.central >= 0.13
-        val aircraftMotion = signals.plane >= 0.10 && signals.movement >= 0.11
-        val multiplierAppearance = signals.multiplier >= 0.12
+        val visualChange = signals.trend >= 0.58 || signals.central >= 0.10
+        // Aircraft confidence alone is not motion. Accept measured movement at a
+        // realistic lower floor, or multiplier-display appearance change corroborated
+        // by a tracked aircraft observation. Numeric multiplier growth is not used.
+        val aircraftMotion = signals.movement >= 0.06
+        val multiplierAppearance = signals.multiplier >= 0.10
+        val aircraftObserved = signals.plane >= 0.08 || signals.movement >= 0.06
         return visualChange &&
-            (aircraftMotion ||
-                (multiplierAppearance && (signals.plane >= 0.10 || signals.movement >= 0.11)))
+            (aircraftMotion || (multiplierAppearance && aircraftObserved))
     }
 
     /**
@@ -180,15 +210,16 @@ internal object PreFlyTiming {
      * Long-round confirmation is intentionally consecutive: one weak frame
      * clears the streak instead of allowing separated hints to accumulate.
      */
+    /** Long rounds retain evidence across one weak capture instead of losing the streak. */
     fun updatedLongRoundHold(current: Int, evidence: Boolean): Int =
-        if (evidence) min(3, current + 1) else 0
+        if (evidence) min(3, current + 1) else max(0, current - 1)
 
-    /** Long-round warnings require three consecutive confirmations to reject noise. */
+    /** Long rounds need two corroborated positives; the hold already decays on weak frames. */
     fun requiredConfirmations(
         frameDeltaMs: Long,
         independentSignals: Int,
         longRound: Boolean = false
     ): Int =
-        if (longRound) 3
+        if (longRound) 2
         else if (frameDeltaMs >= 90L || independentSignals >= 3) 2 else 3
 }

@@ -24,17 +24,15 @@ class IndicatorRoundEndDetectorTest {
     }
 
     @Test
-    fun ocrMissFallbackRequiresAircraftLossBetReadyTextAndStableRedResult() {
+    fun ocrMissFallbackConfirmsAfterSustainedPlaneLossAndFreshBetReadyText() {
         val detector = IndicatorRoundEndDetector()
         establishCandidate(detector)
         val evidence = readyEvidence(11_900L)
 
-        assertTrue(detector.shouldStartRedMultiplierProbe(2_900L, 11_900L, evidence))
-        detector.recordRedMultiplier("1.84x", 2_900L, 11_900L, detector.generation)
-        detector.recordRedMultiplier("1.84x", 3_400L, 12_400L, detector.generation)
-        assertFalse(detector.isConfirmed(3_400L, 12_400L, evidence))
-        detector.recordRedMultiplier("1.84x", 3_800L, 12_800L, detector.generation)
-        assertTrue(detector.isConfirmed(3_800L, 12_800L, evidence))
+        // Plane absence began at 1,100 ms. At 3,499 ms it is still 1 ms
+        // short of the 2.4-second safety window; at 3,500 ms it is confirmed.
+        assertFalse(detector.isConfirmed(3_499L, 12_500L, evidence))
+        assertTrue(detector.isConfirmed(3_500L, 12_500L, evidence))
     }
 
     @Test
@@ -45,7 +43,7 @@ class IndicatorRoundEndDetectorTest {
         detector.observeFrame(1_400L, 10_400L, false, readyEvidence(10_400L))
         detector.observeFrame(2_900L, 11_900L, false, readyEvidence(11_900L))
         val cashOut = readyEvidence(11_900L, cashOutPresent = true)
-        assertFalse(detector.shouldStartRedMultiplierProbe(2_900L, 11_900L, cashOut))
+        assertFalse(detector.isConfirmed(3_500L, 12_500L, cashOut))
     }
 
     @Test
@@ -56,8 +54,8 @@ class IndicatorRoundEndDetectorTest {
         detector.observeFrame(1_400L, 10_400L, false, readyEvidence(10_400L))
         detector.observeFrame(2_900L, 11_900L, false, readyEvidence(11_900L))
         val unrelated = AviatorTextEvidence(observedAtMillis = 11_900L)
-        assertFalse(detector.shouldStartRedMultiplierProbe(2_900L, 11_900L, unrelated))
-        assertFalse(detector.shouldStartRedMultiplierProbe(2_900L, 13_200L, readyEvidence(11_900L)))
+        assertFalse(detector.isConfirmed(3_500L, 12_500L, unrelated))
+        assertFalse(detector.isConfirmed(3_500L, 13_200L, readyEvidence(11_900L)))
     }
 
     @Test
@@ -77,14 +75,14 @@ class IndicatorRoundEndDetectorTest {
         val firstPostRoundSample = readyEvidence(10_100L)
         detector.observeFrame(1_100L, 10_100L, false, firstPostRoundSample)
 
-        // 1.8 seconds of aircraft absence has elapsed, but there is still only one
-        // distinct post-round OCR sample; repeating the same cached sample is not enough.
-        detector.observeFrame(2_900L, 11_900L, false, firstPostRoundSample)
-        assertFalse(detector.shouldStartRedMultiplierProbe(2_900L, 11_900L, firstPostRoundSample))
+        // The 2.4-second absence window has elapsed, but repeating the same cached
+        // OCR timestamp still counts as only one post-round observation.
+        detector.observeFrame(3_500L, 12_500L, false, firstPostRoundSample)
+        assertFalse(detector.isConfirmed(3_500L, 12_500L, firstPostRoundSample))
 
-        val secondPostRoundSample = readyEvidence(11_900L)
-        detector.observeFrame(2_901L, 11_901L, false, secondPostRoundSample)
-        assertTrue(detector.shouldStartRedMultiplierProbe(2_901L, 11_901L, secondPostRoundSample))
+        val secondPostRoundSample = readyEvidence(12_501L)
+        detector.observeFrame(3_501L, 12_501L, false, secondPostRoundSample)
+        assertTrue(detector.isConfirmed(3_501L, 12_501L, secondPostRoundSample))
     }
 
     @Test

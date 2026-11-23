@@ -7,11 +7,11 @@ import java.util.Locale
  *
  * Detector loss alone is never treated as a round end. The same round must
  * first have shown an aircraft; the aircraft must then be absent continuously,
- * OCR must repeatedly confirm the final-result/BET layout (not CASH OUT), and
- * the red final multiplier must be read consistently.
+ * and fresh OCR must repeatedly confirm the verified result/BET/AUTO layout
+ * with CASH OUT absent. A colour-only final-multiplier read is not required.
  */
 internal class IndicatorRoundEndDetector(
-    private val requiredPlaneAbsenceMs: Long = 1_800L,
+    private val requiredPlaneAbsenceMs: Long = 2_400L,
     private val requiredFinalResultStableMs: Long = 850L,
     private val maximumTextAgeMs: Long = 1_200L,
     private val requiredBetReadyTextSamples: Int = 2,
@@ -103,7 +103,7 @@ internal class IndicatorRoundEndDetector(
         nowWallMs: Long,
         evidence: AviatorTextEvidence
     ): Boolean {
-        if (!isEligibleForFinalMultiplierRead(nowElapsedMs, nowWallMs, evidence)) return false
+        if (!isEligibleForRoundEnd(nowElapsedMs, nowWallMs, evidence)) return false
         if (lastProbeAtMs > 0L && nowElapsedMs - lastProbeAtMs < minimumProbeIntervalMs) {
             return false
         }
@@ -141,18 +141,21 @@ internal class IndicatorRoundEndDetector(
         lastFinalMultiplierAtMs = nowElapsedMs
     }
 
+    /**
+     * A round end is confirmed by sustained aircraft absence plus two distinct,
+     * fresh, verified BET/AUTO-ready OCR observations with CASH OUT absent.
+     * This avoids permanently blocking the next round when red-only OCR misses
+     * the final multiplier, while the 2.4-second absence protects against brief
+     * aircraft-detector dropouts during a live long round.
+     */
     @Synchronized
     fun isConfirmed(
         nowElapsedMs: Long,
         nowWallMs: Long,
         evidence: AviatorTextEvidence
-    ): Boolean =
-        isEligibleForFinalMultiplierRead(nowElapsedMs, nowWallMs, evidence) &&
-            finalMultiplierSamples >= requiredFinalMultiplierSamples &&
-            finalMultiplierSinceMs > 0L &&
-            nowElapsedMs - finalMultiplierSinceMs >= requiredFinalResultStableMs
+    ): Boolean = isEligibleForRoundEnd(nowElapsedMs, nowWallMs, evidence)
 
-    private fun isEligibleForFinalMultiplierRead(
+    private fun isEligibleForRoundEnd(
         nowElapsedMs: Long,
         nowWallMs: Long,
         evidence: AviatorTextEvidence

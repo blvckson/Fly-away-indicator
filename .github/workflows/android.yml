@@ -1,5 +1,7 @@
 name: Android Build
 
+# A push to the feature branch runs unit tests and packages a fresh debug APK.
+
 on:
   push:
     branches: [ main, fix/long-round-pre-fly-timing-20261122 ]

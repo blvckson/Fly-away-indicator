@@ -230,18 +230,6 @@ class ScreenMonitorService : Service() {
             indicatorRoundEndDetector.observeFrame(
                 phaseNowMs,wallNowMs,planePresent,textEvidence
             )
-            // Activate the existing red-only OCR reader only after sustained plane
-            // loss and repeated BET-without-CASH-OUT text. Normal frames are untouched.
-            if(!recording && indicatorRoundEndDetector.shouldStartRedMultiplierProbe(
-                phaseNowMs,wallNowMs,textEvidence
-            )){
-                val expectedGeneration=indicatorRoundEndDetector.generation
-                redReader.inspect(frame){value->
-                    indicatorRoundEndDetector.recordRedMultiplier(
-                        value,SystemClock.elapsedRealtime(),System.currentTimeMillis(),expectedGeneration
-                    )
-                }
-            }
         }
         val fallbackEndConfirmed=wasRoundActive && indicatorRoundEndDetector.isConfirmed(
             phaseNowMs,wallNowMs,textEvidence

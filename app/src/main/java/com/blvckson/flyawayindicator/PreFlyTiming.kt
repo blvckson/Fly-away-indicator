@@ -206,11 +206,7 @@ internal object PreFlyTiming {
     fun updatedHold(current: Int, evidence: Boolean): Int =
         if (evidence) min(8, current + 1) else max(0, current - 1)
 
-    /**
-     * Long-round confirmation is intentionally consecutive: one weak frame
-     * clears the streak instead of allowing separated hints to accumulate.
-     */
-    /** Long rounds retain evidence across one weak capture instead of losing the streak. */
+    /** A weak long-round capture reduces the hold by one instead of erasing it. */
     fun updatedLongRoundHold(current: Int, evidence: Boolean): Int =
         if (evidence) min(3, current + 1) else max(0, current - 1)
 

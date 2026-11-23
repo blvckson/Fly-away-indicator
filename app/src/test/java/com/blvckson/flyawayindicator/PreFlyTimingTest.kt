@@ -317,7 +317,8 @@ class PreFlyTimingTest {
     @Test
     fun consistencyFallbackCoversShortMediumAndLongRounds() {
         val roundLengths = listOf(
-            1_000L,   // short / very short window
+            1L,       // first follow-up capture after a confirmed live start
+            1_000L,   // short window
             6_000L,   // medium window
             17_000L,  // long-round boundary
             180_000L  // extremely long round
@@ -337,7 +338,7 @@ class PreFlyTimingTest {
             roundActive = true,
             endConfirmed = false,
             positivelyLive = true,
-            roundElapsedMs = PreFlyTiming.CONSISTENCY_WARNING_FALLBACK_MS - 1L
+            roundElapsedMs = 0L
         ))
     }
 

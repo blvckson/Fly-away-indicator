@@ -33,11 +33,12 @@ internal object PreFlyTiming {
     const val LONG_ROUND_THRESHOLD_MS = 17_000L
 
     /**
-     * Long rounds get one consistency warning once they pass the nominal 4x
-     * elapsed-time boundary. It is issued only while the same round is still
-     * positively live; it does not claim to predict the exact fly-away moment.
+     * Coverage-first fallback shared by short, medium and long rounds.
+     * It is deliberately a round warning, not a claim of exact pre-fly timing.
      */
-    fun shouldIssueLongRoundFallback(
+    const val CONSISTENCY_WARNING_FALLBACK_MS = 1_000L
+
+    fun shouldIssueConsistencyFallback(
         roundActive: Boolean,
         endConfirmed: Boolean,
         positivelyLive: Boolean,
@@ -46,7 +47,7 @@ internal object PreFlyTiming {
         roundActive &&
             !endConfirmed &&
             positivelyLive &&
-            roundElapsedMs >= LONG_ROUND_THRESHOLD_MS
+            roundElapsedMs >= CONSISTENCY_WARNING_FALLBACK_MS
 
     fun candidate(signals: PreFlySignals): Double =
         // Preserve the pre-existing Build 74 signal proportions in 88% of the

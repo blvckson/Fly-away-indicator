@@ -255,8 +255,7 @@ class ScreenMonitorService : Service() {
         if(roundStarted){
             // Start fresh lifecycle helpers only for a genuinely new round. Seed
             // aircraft presence from this accepted live frame; do not reset on misses.
-            indicatorRoundEndDetector.reset()
-            indicatorRoundEndDetector.observeFrame(phaseNowMs,wallNowMs,planePresent,textEvidence)
+            indicatorRoundEndDetector.beginRound(planePresent,textEvidence.observedAtMillis)
             indicatorReacquisitionGate.reset()
             indicatorRoundStartedAtMs=phaseNowMs
             indicatorWasLongRound=false

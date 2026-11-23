@@ -52,6 +52,13 @@ internal class IndicatorRoundEndDetector(
         clearFinalMultiplier()
     }
 
+    /** Seed current round identity without counting pre-round OCR as result text. */
+    fun beginRound(planePresent: Boolean, lastObservedTextAtMs: Long) {
+        reset()
+        planeSeenInRound = planePresent
+        lastTextObservedAtMs = lastObservedTextAtMs
+    }
+
     fun observeFrame(
         nowElapsedMs: Long,
         nowWallMs: Long,

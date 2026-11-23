@@ -17,7 +17,7 @@ class IndicatorRoundEndDetectorTest {
         )
 
     private fun establishCandidate(detector: IndicatorRoundEndDetector) {
-        detector.observeFrame(1_000L, 10_000L, true, readyEvidence(10_000L))
+        detector.beginRound(planePresent = true, lastObservedTextAtMs = 10_000L)
         detector.observeFrame(1_100L, 10_100L, false, readyEvidence(10_100L))
         detector.observeFrame(1_400L, 10_400L, false, readyEvidence(10_400L))
         detector.observeFrame(2_900L, 11_900L, false, readyEvidence(11_900L))
@@ -40,7 +40,7 @@ class IndicatorRoundEndDetectorTest {
     @Test
     fun cashOutControlBlocksTheFallbackEvenWhenAPlaneIsMissing() {
         val detector = IndicatorRoundEndDetector()
-        detector.observeFrame(1_000L, 10_000L, true, readyEvidence(10_000L))
+        detector.beginRound(planePresent = true, lastObservedTextAtMs = 10_000L)
         detector.observeFrame(1_100L, 10_100L, false, readyEvidence(10_100L))
         detector.observeFrame(1_400L, 10_400L, false, readyEvidence(10_400L))
         detector.observeFrame(2_900L, 11_900L, false, readyEvidence(11_900L))
@@ -51,7 +51,7 @@ class IndicatorRoundEndDetectorTest {
     @Test
     fun anUnrelatedOrStaleOcrSampleCannotStartTheFallback() {
         val detector = IndicatorRoundEndDetector()
-        detector.observeFrame(1_000L, 10_000L, true, readyEvidence(10_000L))
+        detector.beginRound(planePresent = true, lastObservedTextAtMs = 10_000L)
         detector.observeFrame(1_100L, 10_100L, false, readyEvidence(10_100L))
         detector.observeFrame(1_400L, 10_400L, false, readyEvidence(10_400L))
         detector.observeFrame(2_900L, 11_900L, false, readyEvidence(11_900L))

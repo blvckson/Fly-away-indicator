@@ -111,7 +111,6 @@ class ScreenMonitorService : Service() {
     private var indicatorStartPlaneX=Float.NaN
     private var indicatorStartPlaneY=Float.NaN
     private var indicatorFlightProgress=0.0
-    private var indicatorRoundHadActivity=false
     private var lastIndicatorSignalReport="Signal indices /100 — awaiting first live-round sample."
     private var latchedRedSignalReport=""
 
@@ -256,7 +255,6 @@ class ScreenMonitorService : Service() {
             indicatorStartPlaneX=if(planePresent) state.planeX else Float.NaN
             indicatorStartPlaneY=if(planePresent) state.planeY else Float.NaN
             indicatorFlightProgress=0.0
-            indicatorRoundHadActivity=false
             lastIndicatorSignalReport="Signal indices /100 — collecting opening samples."
             latchedRedSignalReport=""
             indicatorBaseline.clear()
@@ -296,7 +294,6 @@ class ScreenMonitorService : Service() {
             indicatorStartPlaneX=Float.NaN
             indicatorStartPlaneY=Float.NaN
             indicatorFlightProgress=0.0
-            indicatorRoundHadActivity=false
             lastIndicatorSignalReport="Signal indices /100 — waiting for the next round."
             latchedRedSignalReport=""
             indicatorBaseline.clear()
@@ -453,7 +450,6 @@ class ScreenMonitorService : Service() {
             )
             if(indicatorPreHold>=requiredConfirmations &&
                 indicatorPhaseMachine.phase==IndicatorPhase.GREEN){
-                indicatorRoundHadActivity=true
                 val phaseBeforeAlert=indicatorPhaseMachine.phase
                 indicatorPhaseMachine.markPreFlyAway(phaseNowMs)
                 if(phaseBeforeAlert==IndicatorPhase.GREEN &&
@@ -472,38 +468,8 @@ class ScreenMonitorService : Service() {
             if(skipForReacquisition) indicatorChanges.clear()
         }
 
-        // Coverage-first fallback for every round length. Once a positively
-        // identified round has produced its first follow-up capture (at least
-        // 1 ms after acceptance), issue one warning even when scoring stays quiet.
-        // The fallback is intentionally not labelled as an exact pre-fly prediction.
-        val freshLiveCashOutEvidence =
-            textEvidence.verified &&
-                textEvidence.multiplierPresent &&
-                textEvidence.cashOutPresent &&
-                !textEvidence.endConfirmed &&
-                textEvidence.observedAtMillis > 0L &&
-                wallNowMs >= textEvidence.observedAtMillis &&
-                wallNowMs - textEvidence.observedAtMillis <= 650L
-        val positivelyLiveForFallback = visualLive || freshLiveCashOutEvidence
-        if (PreFlyTiming.shouldIssueConsistencyFallback(
-                roundActive = indicatorPhaseMachine.isRoundActive,
-                endConfirmed = endConfirmed,
-                positivelyLive = positivelyLiveForFallback,
-                roundElapsedMs = roundElapsedMs
-            )
-        ) {
-            val phaseBeforeFallback = indicatorPhaseMachine.phase
-            indicatorPhaseMachine.markConsistencyFallback(phaseNowMs)
-            if (phaseBeforeFallback != IndicatorPhase.RED &&
-                indicatorPhaseMachine.phase == IndicatorPhase.RED
-            ) {
-                indicatorRoundHadActivity = true
-                indicatorPreDetected = true
-                latchedRedSignalReport =
-                    "Round consistency warning — issued on the first follow-up capture after positive live identification. This is a coverage reminder, not an exact pre-fly-away prediction."
-                vibrateForPreFlyAway()
-            }
-        }
+        // RED is issued only by the signal-backed pre-fly-away path above.
+        // Live-screen confirmation or elapsed time alone can never force a warning.
 
         // Round video recording, saving, and post-round analysis are intentionally
         // disabled: they consumed CPU/storage and interfered with the user's priority,
@@ -552,14 +518,8 @@ class ScreenMonitorService : Service() {
                 "Indicator is black. Waiting for verified live-round evidence.")
             IndicatorPhase.GREEN -> publish("ROUND VISUAL MONITORING — GREEN",false,
                 "Aviator live round confirmed. Tracking visual behaviour for the pre-fly-away change.")
-            IndicatorPhase.RED -> {
-                if (latchedRedSignalReport.startsWith("Round consistency warning")) {
-                    publish("ROUND WARNING ISSUED",true,latchedRedSignalReport)
-                } else {
-                    publish("PRE-FLY-AWAY DETECTED",true,
-                        "Pre-fly-away visual/behavioural transition detected. Red indicator ON. ${latchedRedSignalReport.ifBlank { lastIndicatorSignalReport }}")
-                }
-            }
+            IndicatorPhase.RED -> publish("PRE-FLY-AWAY DETECTED",true,
+                "Pre-fly-away visual/behavioural transition detected. Red indicator ON. ${latchedRedSignalReport.ifBlank { lastIndicatorSignalReport }}")
         }
 
         lastFrame?.recycle()

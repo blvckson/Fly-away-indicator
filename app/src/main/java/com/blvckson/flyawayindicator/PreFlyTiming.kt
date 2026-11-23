@@ -32,23 +32,6 @@ internal object PreFlyTiming {
      */
     const val LONG_ROUND_THRESHOLD_MS = 17_000L
 
-    /**
-     * Coverage-first fallback shared by short, medium and long rounds.
-     * It is deliberately a round warning, not a claim of exact pre-fly timing.
-     */
-    const val CONSISTENCY_WARNING_FALLBACK_MS = 1L
-
-    fun shouldIssueConsistencyFallback(
-        roundActive: Boolean,
-        endConfirmed: Boolean,
-        positivelyLive: Boolean,
-        roundElapsedMs: Long
-    ): Boolean =
-        roundActive &&
-            !endConfirmed &&
-            positivelyLive &&
-            roundElapsedMs >= CONSISTENCY_WARNING_FALLBACK_MS
-
     fun candidate(signals: PreFlySignals): Double =
         // Preserve the pre-existing Build 74 signal proportions in 88% of the
         // score and reserve 12% for multiplier-display appearance behaviour.
@@ -146,10 +129,9 @@ internal object PreFlyTiming {
             count >= 2
 
         // Once a round passes the nominal 4x duration, use a dedicated
-        // reliability-first path. The user prioritises receiving one warning in
-        // every round over pin-point pre-fly timing, so do not let a high blended
-        // score or a moving baseline suppress an otherwise corroborated alert.
-        // Short/medium rules above remain unchanged. This path has no upper time limit.
+        // corroboration-based path with no upper time limit. It still requires
+        // multiple independent signal channels, actual aircraft travel, opening
+        // samples, and repeated evidence. Short/medium rules above remain unchanged.
         val longTrendEvidence = signals.trend >= 0.58
         val longCentralEvidence = signals.central >= 0.10
         val longPlaneEvidence = signals.plane >= 0.08

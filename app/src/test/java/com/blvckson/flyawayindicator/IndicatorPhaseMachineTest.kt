@@ -110,7 +110,7 @@ class IndicatorPhaseMachineTest {
     }
 
     @Test
-    fun temporaryDetectionLossHidesGreenButDoesNotFinishOrRestartTheRound() {
+    fun temporaryDetectionLossKeepsGreenAndDoesNotFinishOrRestartTheRound() {
         val machine = IndicatorPhaseMachine()
         machine.observeLive(true, false, 1_000L)
         assertEquals(1L, machine.roundStartGeneration)
@@ -143,8 +143,8 @@ class IndicatorPhaseMachineTest {
         machine.observeLive(false, false, 180_000L)
         assertTrue(machine.isRoundActive)
         assertEquals(0L, machine.roundEndGeneration)
-        assertEquals(IndicatorPhase.BLACK, machine.observeLive(true, false, 181_000L))
-        assertEquals(IndicatorPhase.BLACK, machine.markPreFlyAway(181_100L))
+        assertEquals(IndicatorPhase.GREEN, machine.observeLive(true, false, 181_000L))
+        assertEquals(IndicatorPhase.GREEN, machine.markPreFlyAway(181_100L))
     }
 
     @Test
@@ -173,7 +173,7 @@ class IndicatorPhaseMachineTest {
         machine.observeLive(true, false, 1_000L)
         machine.markPreFlyAway(1_100L)
         machine.observeLive(true, false, 2_300L)
-        assertEquals(IndicatorPhase.BLACK, machine.phase)
+        assertEquals(IndicatorPhase.GREEN, machine.phase)
 
         assertEquals(IndicatorPhase.GREEN, machine.observeLive(true, true, 2_400L))
         assertEquals(1L, machine.roundEndGeneration)
@@ -290,7 +290,7 @@ class IndicatorPhaseMachineTest {
         machine.observeLive(false, false, 1_200L)
         machine.observeLive(false, false, 1_300L)
         machine.observeLive(false, false, 1_400L)
-        assertEquals(IndicatorPhase.BLACK, machine.phase)
+        assertEquals(IndicatorPhase.GREEN, machine.phase)
         assertTrue(machine.isRoundActive)
 
         // Reacquisition resumes the same round; the pending fallback is not lost.
@@ -307,7 +307,7 @@ class IndicatorPhaseMachineTest {
     fun confirmedEndBlocksPendingFallbackAndNextRoundGetsAFreshOne() {
         val machine = IndicatorPhaseMachine()
         machine.observeLive(true, false, 1_000L)
-        assertEquals(IndicatorPhase.BLACK, machine.observeLive(false, true, 1_100L))
+        assertEquals(IndicatorPhase.GREEN, machine.observeLive(false, true, 1_100L))
         assertFalse(machine.markConsistencyWarningIfDue(
             visualLive = true, endConfirmed = true,
             isRoundStartFrame = false, nowMs = 1_101L

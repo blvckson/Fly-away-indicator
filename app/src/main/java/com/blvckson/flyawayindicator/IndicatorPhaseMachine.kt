@@ -30,13 +30,11 @@ internal object LiveStartPolicy {
 }
 
 /**
- * Owns one alert lifecycle per positively identified game round.
- *
- * A round can issue one GREEN -> RED transition only. Temporary loss of live-screen
- * evidence may hide GREEN, but it never ends the round or releases the alert lock.
- * Only a confirmed round-end signal from the service finalizes the round: either
- * explicit "FLEW AWAY" OCR or the independently corroborated result-state fallback.
- * Detector loss alone never releases the lock. This fails closed against duplicate alerts.
+ * Owns one alert lifecycle per positively identified game round inside an Aviator
+ * screen session. Each round can issue one GREEN -> RED transition only.
+ * Temporary loss of aircraft/live-frame evidence does not hide GREEN or release
+ * the per-round alert lock. Only a confirmed round-end signal releases that lock;
+ * screen-presence evidence alone controls when the indicator resets to BLACK.
  */
 internal class IndicatorPhaseMachine(
     private val redVisibleDurationMs: Long = 1_200L

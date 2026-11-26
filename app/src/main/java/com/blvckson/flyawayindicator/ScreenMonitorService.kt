@@ -234,6 +234,9 @@ class ScreenMonitorService : Service() {
             phaseNowMs,wallNowMs,textEvidence
         )
         val endConfirmed=textEvidence.endConfirmed || fallbackEndConfirmed
+        val aviatorScreenPresent=visualLive || endConfirmed ||
+            textVerifier.isAviatorScreenVisible(wallNowMs)
+        indicatorPhaseMachine.observeScreenPresence(aviatorScreenPresent)
         indicatorPhaseMachine.observeLive(visualLive,endConfirmed,nowMs=phaseNowMs)
         val roundStarted=indicatorPhaseMachine.roundStartGeneration!=previousRoundStartGeneration
         val roundEnded=indicatorPhaseMachine.roundEndGeneration!=previousRoundEndGeneration
@@ -265,8 +268,8 @@ class ScreenMonitorService : Service() {
             lastPlaneX=Float.NaN
             lastPlaneY=Float.NaN
         }else if(previousIndicatorPhase==IndicatorPhase.RED &&
-            currentIndicatorPhase==IndicatorPhase.BLACK && !roundEnded){
-            // The 1.2-second alert has been hidden, but this is still the same
+            currentIndicatorPhase==IndicatorPhase.GREEN && !roundEnded){
+            // The 1.2-second alert has returned to GREEN, but this is still the same
             // round. Keep its baseline and one-alert lock until an end marker.
             indicatorPreScore=0.0
             indicatorPreHold=0

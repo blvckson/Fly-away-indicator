@@ -39,16 +39,14 @@ internal object LiveStartPolicy {
  * Detector loss alone never releases the lock. This fails closed against duplicate alerts.
  */
 internal class IndicatorPhaseMachine(
-    private val missingFramesToHide: Int = 3,
     private val redVisibleDurationMs: Long = 1_200L
 ) {
     var phase: IndicatorPhase = IndicatorPhase.BLACK
         private set
 
-    private var missingLiveFrames = 0
+    private var aviatorScreenActive = false
     private var redStartedAtMs = 0L
     private var roundActive = false
-    private var awaitingNextRound = false
     private var endMarkerLatched = false
     private var redIssuedThisRound = false
     private var consistencyFallbackPending = false
@@ -68,9 +66,34 @@ internal class IndicatorPhaseMachine(
     val isRoundActive: Boolean
         get() = roundActive
 
+    val isAviatorScreenActive: Boolean
+        get() = aviatorScreenActive
+
     init {
-        require(missingFramesToHide >= 1)
         require(redVisibleDurationMs >= 1L)
+    }
+
+    /**
+     * Owns the outer screen-session state. Black is used only before the Aviator
+     * screen is detected or after its presence evidence expires. Once active,
+     * GREEN remains visible between rounds; RED is the only temporary change.
+     */
+    fun observeScreenPresence(screenPresent: Boolean): IndicatorPhase {
+        if (!screenPresent) {
+            if (aviatorScreenActive) reset()
+            return phase
+        }
+        if (!aviatorScreenActive) {
+            aviatorScreenActive = true
+            phase = IndicatorPhase.GREEN
+            redStartedAtMs = 0L
+            roundActive = false
+            endMarkerLatched = false
+            redIssuedThisRound = false
+            consistencyFallbackPending = false
+            lastAlertWasConsistencyFallback = false
+        }
+        return phase
     }
 
     fun observeLive(
@@ -78,58 +101,48 @@ internal class IndicatorPhaseMachine(
         endConfirmed: Boolean,
         nowMs: Long = System.nanoTime() / 1_000_000L
     ): IndicatorPhase {
+        // A positively identified live round can establish the screen session
+        // even before the first OCR identity sample is available.
+        if (visualLive && !aviatorScreenActive) observeScreenPresence(true)
+
         if (!endConfirmed) endMarkerLatched = false
 
-        // Detector/OCR misses alone are not proof that a flight ended. The service
-        // supplies endConfirmed only for explicit FLEW AWAY OCR or a corroborated
-        // final-result fallback; that confirmed signal releases this round's lock.
-        if (roundActive && endConfirmed && !endMarkerLatched) {
-            endMarkerLatched = true
-            finishRound()
-            return phase
+        // A confirmed result ends only the per-round lock. It does not close the
+        // Aviator screen session, so the indicator returns/remains GREEN.
+        if (endConfirmed) {
+            if (roundActive && !endMarkerLatched) {
+                endMarkerLatched = true
+                finishRound()
+                return phase
+            }
+            if (!roundActive) endMarkerLatched = true
         }
 
-        // RED is a short visual alert, not the lifetime of the round lock.
+        if (!aviatorScreenActive) return IndicatorPhase.BLACK
+
+        // Keep the existing RED display duration, then return directly to GREEN.
+        // The current round remains locked against another RED until its end.
         if (phase == IndicatorPhase.RED &&
             nowMs - redStartedAtMs >= redVisibleDurationMs
         ) {
-            phase = IndicatorPhase.BLACK
-            awaitingNextRound = true
-            clearMissingLive()
+            phase = IndicatorPhase.GREEN
+            redStartedAtMs = 0L
+            lastAlertWasConsistencyFallback = false
         }
 
-        if (phase == IndicatorPhase.BLACK) {
-            // After RED, remain BLACK until a confirmed round-end signal is seen.
-            if (awaitingNextRound || !visualLive) return phase
-
-            clearMissingLive()
-            if (!roundActive) {
-                roundActive = true
-                roundStartGeneration++
-                consistencyFallbackPending = true
-                lastAlertWasConsistencyFallback = false
-            }
-            // A BLACK phase caused by a temporary detector miss may resume GREEN,
-            // but an already-issued RED can never be re-armed within this round.
-            if (!redIssuedThisRound) phase = IndicatorPhase.GREEN
-            if (endConfirmed) endMarkerLatched = true
-            return phase
+        // A new positively-live round starts a new alert lifecycle without BLACK.
+        if (!roundActive && visualLive && !endMarkerLatched) {
+            roundActive = true
+            roundStartGeneration++
+            redIssuedThisRound = false
+            consistencyFallbackPending = true
+            lastAlertWasConsistencyFallback = false
+            phase = IndicatorPhase.GREEN
         }
 
-        if (phase == IndicatorPhase.GREEN) {
-            if (visualLive) {
-                clearMissingLive()
-            } else {
-                missingLiveFrames++
-                if (missingLiveFrames >= missingFramesToHide) {
-                    // Hide a stale GREEN overlay, but keep roundActive and the alert
-                    // lock intact. Reacquisition resumes this same round; it does not
-                    // create a new round or reset its timing/baseline.
-                    phase = IndicatorPhase.BLACK
-                    clearMissingLive()
-                }
-            }
-        }
+        // Temporary detector/OCR misses do not hide GREEN. Only screen presence
+        // evidence controls the GREEN -> BLACK session reset.
+        if (phase == IndicatorPhase.BLACK) phase = IndicatorPhase.GREEN
         return phase
     }
 
@@ -170,28 +183,21 @@ internal class IndicatorPhaseMachine(
     }
 
     fun reset() {
+        aviatorScreenActive = false
         phase = IndicatorPhase.BLACK
-        clearMissingLive()
         redStartedAtMs = 0L
         roundActive = false
-        awaitingNextRound = false
         endMarkerLatched = false
         redIssuedThisRound = false
         consistencyFallbackPending = false
         lastAlertWasConsistencyFallback = false
     }
 
-    private fun clearMissingLive() {
-        missingLiveFrames = 0
-    }
-
     private fun finishRound() {
         val hadRound = roundActive
-        phase = IndicatorPhase.BLACK
-        clearMissingLive()
+        phase = if (aviatorScreenActive) IndicatorPhase.GREEN else IndicatorPhase.BLACK
         redStartedAtMs = 0L
         roundActive = false
-        awaitingNextRound = false
         redIssuedThisRound = false
         consistencyFallbackPending = false
         lastAlertWasConsistencyFallback = false

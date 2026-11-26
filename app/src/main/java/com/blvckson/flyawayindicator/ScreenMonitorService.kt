@@ -95,6 +95,8 @@ class ScreenMonitorService : Service() {
     // baseline prevents ordinary take-off animation from immediately turning it red.
     private val indicatorChanges=ArrayDeque<Double>()
     private val indicatorBaseline=ArrayDeque<Double>()
+    // Session state stays active across round boundaries; only leaving the Aviator screen resets it.
+    private var indicatorScreenActive=false
     private var indicatorRoundActive=false
     private var indicatorLiveHits=0
     private var indicatorMisses=0
@@ -203,6 +205,33 @@ class ScreenMonitorService : Service() {
         // Do not let low-threshold movement alone trigger the pre-fly-away warning.
         val endConfirmed=textVerifier.isEndConfirmed()
         val nowMs=System.currentTimeMillis()
+        val aviatorTextVisible=textVerifier.isAviatorScreenVisible(nowMs)
+        val screenWasActive=indicatorScreenActive
+        if(visualLive || endConfirmed || aviatorTextVisible){
+            indicatorScreenActive=true
+        }else if(indicatorScreenActive){
+            // No live-game visuals, end marker, or OCR game-screen marker remain.
+            // Reset to black only after the Aviator screen itself is no longer visible.
+            indicatorScreenActive=false
+            indicatorRoundActive=false
+            indicatorLiveHits=0
+            indicatorMisses=0
+            indicatorPreScore=0.0
+            indicatorPreHold=0
+            indicatorPreDetected=false
+            indicatorFrames=0
+            indicatorBaselineScore=0.0
+            indicatorRoundHadActivity=false
+            indicatorBaseline.clear()
+            indicatorChanges.clear()
+        }
+        if(screenWasActive && !indicatorScreenActive){
+            publish("WAITING FOR AVIATOR",false,
+                "Aviator screen closed or left. Indicator reset to black.")
+        }else if(!screenWasActive && indicatorScreenActive && !visualLive){
+            publish("AVIATOR SCREEN DETECTED — GREEN",false,
+                "Aviator screen detected. Green warning stage is active.")
+        }
         if(!endConfirmed) indicatorEndLatched=false
         if(endConfirmed){
             // End markers can remain visible for several captured frames. Clear the
@@ -525,7 +554,7 @@ class ScreenMonitorService : Service() {
             overlay?.text=buildOverlayText(status,pre)
             overlay?.textSize=overlayTextSize
             overlay?.setTextColor(0xFFFFFFFF.toInt())
-            overlay?.setBackgroundColor(when { pre -> 0xFFE53935.toInt(); indicatorRoundActive || recording -> 0xFF2E7D32.toInt(); else -> 0xE6202124.toInt() })
+            overlay?.setBackgroundColor(when { pre -> 0xFFE53935.toInt(); indicatorScreenActive || indicatorRoundActive || recording -> 0xFF2E7D32.toInt(); else -> 0xE6202124.toInt() })
         }
         sendBroadcast(Intent(ACTION_STATUS).putExtra(EXTRA_STATUS,status).putExtra(EXTRA_STATEMENT,statement).putExtra(EXTRA_RED,pre).putExtra(EXTRA_ROUNDS,store.all().size))
     }

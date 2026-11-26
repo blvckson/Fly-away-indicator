@@ -27,6 +27,7 @@ class AviatorTextVerifier {
     @Volatile private var lastResultAt = 0L
     @Volatile private var lastResult = "Waiting for Aviator text confirmation"
     @Volatile private var endedUntil = 0L
+    @Volatile private var screenPresenceUntil = 0L
     @Volatile private var latestEvidence = AviatorTextEvidence()
 
     fun inspect(frame: Bitmap, now: Long = System.currentTimeMillis()) {
@@ -98,6 +99,11 @@ class AviatorTextVerifier {
                     val cashOutPresent = text.contains("cash out") || text.contains("cashout")
                     val betControl = text.contains("bet") &&
                         (text.contains("auto") || cashOutPresent)
+                    // Aviator branding or live/bet controls keep the screen session
+                    // alive across flights and OCR frames between rounds.
+                    if (aviatorWord || betControl) {
+                        screenPresenceUntil = System.currentTimeMillis() + 5_000L
+                    }
                     val match = multiplierPresent && (aviatorWord || betControl)
                     if (match) {
                         consecutiveMatches = (consecutiveMatches + 1).coerceAtMost(4)
@@ -150,6 +156,9 @@ class AviatorTextVerifier {
         consecutiveMatches >= 2 && now <= verifiedUntil
 
     fun isEndConfirmed(now: Long = System.currentTimeMillis()): Boolean = now <= endedUntil
+
+    fun isAviatorScreenVisible(now: Long = System.currentTimeMillis()): Boolean =
+        now <= screenPresenceUntil
 
     internal fun evidence(now: Long = System.currentTimeMillis()): AviatorTextEvidence =
         latestEvidence.copy(verified = isVerified(now), endConfirmed = isEndConfirmed(now))

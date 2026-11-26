@@ -19,6 +19,7 @@ class AviatorTextVerifier {
     @Volatile private var lastResultAt = 0L
     @Volatile private var lastResult = "Waiting for Aviator text confirmation"
     @Volatile private var endedUntil = 0L
+    @Volatile private var screenVisibleUntil = 0L
 
     fun inspect(frame: Bitmap, now: Long = System.currentTimeMillis()) {
         if (busy || now - lastResultAt < 280L) return
@@ -62,6 +63,11 @@ class AviatorTextVerifier {
                     val betControl = text.contains("bet") &&
                         (text.contains("auto") || text.contains("cash out") ||
                          text.contains("cashout"))
+                    // Keep the indicator session alive on the game/lobby screen
+                    // between rounds, even when the aircraft is temporarily absent.
+                    if (aviatorWord || betControl) {
+                        screenVisibleUntil = System.currentTimeMillis() + 6000L
+                    }
                     val match = multiplier && (aviatorWord || betControl)
                     if (match) {
                         consecutiveMatches = (consecutiveMatches + 1).coerceAtMost(4)
@@ -101,6 +107,9 @@ class AviatorTextVerifier {
         consecutiveMatches >= 2 && now <= verifiedUntil
 
     fun isEndConfirmed(now: Long = System.currentTimeMillis()): Boolean = now <= endedUntil
+
+    fun isAviatorScreenVisible(now: Long = System.currentTimeMillis()): Boolean =
+        now <= screenVisibleUntil
 
     fun status(): String = lastResult
 

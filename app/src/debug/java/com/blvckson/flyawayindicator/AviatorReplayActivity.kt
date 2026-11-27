@@ -219,8 +219,11 @@ private class AviatorReplayView(context: android.content.Context) : View(context
             // Keep the synthetic aircraft clear of the top-left floating overlay area.
             // A larger, clean red component makes this controlled test target robust
             // across emulator resolutions while preserving a smooth round trajectory.
-            val planeX = w * (0.70f + 0.12f * progress)
-            val planeY = h * (0.45f - 0.18f * progress)
+            // Give the replay aircraft enough measured travel by each injected
+            // pre-warning time to exercise the production flightProgress gate.
+            // This is test-only motion; no production thresholds are relaxed.
+            val planeX = w * (0.51f + 0.35f * progress)
+            val planeY = h * (0.55f - 0.40f * progress)
             drawAircraft(canvas, planeX, planeY, w * 0.090f)
         } else if (ended) {
             text.color = Color.WHITE

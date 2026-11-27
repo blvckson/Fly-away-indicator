@@ -6,7 +6,6 @@ import android.content.*
 import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Bundle
-import android.provider.Settings
 import android.view.MenuItem
 import android.view.View
 import android.widget.Button
@@ -65,7 +64,7 @@ class MainActivity : Activity() {
     }
 
     private fun requestMonitoring(){
-        if(!Settings.canDrawOverlays(this)){
+        if(!OverlayPermissionChecker.canDraw(this)){
             startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
             status.text="Allow overlay permission, then press START MONITOR again."
             return

@@ -5,7 +5,6 @@ import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.os.SystemClock
-import android.provider.Settings
 import android.widget.Button
 import android.widget.TextView
 import androidx.test.core.app.ActivityScenario
@@ -76,8 +75,9 @@ class AppRuntimeSmokeTest {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
         assertTrue(
-            "The emulator workflow must grant SYSTEM_ALERT_WINDOW before this test.",
-            Settings.canDrawOverlays(context)
+            "Overlay permission check failed: package=${context.packageName}, " +
+                "appOpMode=${OverlayPermissionChecker.appOpMode(context)}",
+            OverlayPermissionChecker.canDraw(context)
         )
 
         val device = UiDevice.getInstance(instrumentation)

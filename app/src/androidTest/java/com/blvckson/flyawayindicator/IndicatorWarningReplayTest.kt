@@ -6,7 +6,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.SystemClock
-import android.provider.Settings
 import androidx.lifecycle.Lifecycle
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -100,8 +99,9 @@ class IndicatorWarningReplayTest {
 
         try {
             assertTrue(
-                "Overlay permission must be granted by the emulator workflow.",
-                Settings.canDrawOverlays(targetContext)
+                "Overlay permission check failed: package=${targetContext.packageName}, " +
+                    "appOpMode=${OverlayPermissionChecker.appOpMode(targetContext)}",
+                OverlayPermissionChecker.canDraw(targetContext)
             )
 
             // Start the actual monitor and accept the real Android MediaProjection dialog.
@@ -148,6 +148,10 @@ class IndicatorWarningReplayTest {
                 Intent(targetContext, AviatorReplayActivity::class.java)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
             )
+            // Some Android 8 emulator builds show a one-time immersive-mode
+            // confirmation above the Activity. Dismiss it if the system retained
+            // that prompt from an earlier replay build.
+            device.wait(Until.findObject(By.text("GOT IT")), 1_000L)?.click()
             assertTrue(
                 "Synthetic replay Activity did not become the resumed foreground Activity.",
                 waitUntil(10_000L) {

@@ -331,12 +331,14 @@ class IndicatorWarningReplayTest {
                 )
                 assertTrue(
                     "${roundCase.name}: RED was too late after the injected signal. " +
-                        "signalDelay=${measuredSignalDelay}ms (limit 4000ms)",
+                        "signalDelay=${measuredSignalDelay}ms (limit 4000ms); " +
+                        "roundTrace=${diagnostics.filter { it.contains("round=true") }.takeLast(45).joinToString(" | ")}",
                     measuredSignalDelay <= 4_000L
                 )
                 assertTrue(
                     "${roundCase.name}: RED did not precede the replayed fly-away by at least 500ms. " +
-                        "lead=${warningLeadTime}ms",
+                        "lead=${warningLeadTime}ms; " +
+                        "roundTrace=${diagnostics.filter { it.contains("round=true") }.takeLast(45).joinToString(" | ")}",
                     warningLeadTime >= 500L
                 )
 

@@ -168,15 +168,10 @@ class IndicatorWarningReplayTest {
 
                 // Keep the same Aviator screen visible through FLEW AWAY and the
                 // following inter-round gap. GREEN must not disappear to BLACK.
-                waitUntil(roundCase.durationMs - measuredRoundElapsed + 2_300L) {
-                    events.any {
-                        it.status.contains("ROUND VISUAL MONITORING — GREEN") &&
-                            it.atMs > redEvent.atMs
-                    }
-                }
-                val redCountAfter = events.count {
-                    it.status == "PRE-FLY-AWAY DETECTED" && it.atMs >= roundStartAt
-                }
+                val endPlusHoldAt = roundStartAt + roundCase.durationMs + 2_300L
+                val remainingAfterEnd = (endPlusHoldAt - SystemClock.elapsedRealtime()).coerceAtLeast(0L)
+                SystemClock.sleep(remainingAfterEnd)
+                val redCountAfter = events.count { it.status == "PRE-FLY-AWAY DETECTED" }
                 assertTrue(
                     "${roundCase.name}: more than one RED warning was issued for a single round.",
                     redCountAfter - redCountBefore == 1

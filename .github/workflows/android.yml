@@ -65,8 +65,16 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
           disable-animations: true
           script: |
+            # Install both APKs first; appops cannot target a package before Android
+            # has registered its UID on the emulator.
+            gradle installDebug installDebugAndroidTest --no-daemon
+            adb shell pm path com.blvckson.flyawayindicator
+            adb shell pm path com.blvckson.flyawayindicator.test
             adb shell appops set com.blvckson.flyawayindicator SYSTEM_ALERT_WINDOW allow
-            gradle connectedDebugAndroidTest --no-daemon
+            adb shell appops get com.blvckson.flyawayindicator SYSTEM_ALERT_WINDOW
+            # Reuse the installed APKs so the appops grant is not disturbed by a
+            # second install step while connected instrumentation tests start.
+            gradle connectedDebugAndroidTest --no-daemon -x installDebug -x installDebugAndroidTest
       - name: Upload emulator test reports
         if: always()
         uses: actions/upload-artifact@v4

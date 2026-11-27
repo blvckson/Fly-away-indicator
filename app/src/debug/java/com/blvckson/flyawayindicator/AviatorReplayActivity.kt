@@ -30,6 +30,7 @@ class AviatorReplayActivity : Activity() {
         const val ACTION_BEGIN_ROUND = "com.blvckson.flyawayindicator.TEST_REPLAY_BEGIN"
         const val ACTION_SHOW_NEUTRAL = "com.blvckson.flyawayindicator.TEST_REPLAY_NEUTRAL"
         const val ACTION_FINISH = "com.blvckson.flyawayindicator.TEST_REPLAY_FINISH"
+        const val ACTION_LIFECYCLE = "com.blvckson.flyawayindicator.TEST_REPLAY_LIFECYCLE"
         const val EXTRA_DURATION_MS = "duration_ms"
         const val EXTRA_SIGNAL_AT_MS = "signal_at_ms"
     }
@@ -47,6 +48,47 @@ class AviatorReplayActivity : Activity() {
                 ACTION_FINISH -> finish()
             }
         }
+    }
+
+    /** Direct controls used by instrumentation; avoids broadcast timing races. */
+    fun showCalibrationForTest() = replayView.showCalibrationScene()
+
+    fun beginRoundForTest(durationMs: Long, signalAtMs: Long): Long {
+        replayView.beginReplayRound(durationMs, signalAtMs)
+        return SystemClock.elapsedRealtime()
+    }
+
+    fun showNeutralForTest() = replayView.showNeutralScene()
+
+    fun debugStateForTest(): String = replayView.debugState()
+
+    private fun reportLifecycle(stage: String) {
+        try {
+            sendBroadcast(
+                Intent(ACTION_LIFECYCLE)
+                    .setPackage(packageName)
+                    .putExtra("stage", stage)
+                    .putExtra(
+                        "replayState",
+                        if (::replayView.isInitialized) replayView.debugState() else "not-initialized"
+                    )
+            )
+        } catch (_: Throwable) {}
+    }
+
+    override fun onResume() {
+        super.onResume()
+        reportLifecycle("RESUMED")
+    }
+
+    override fun onPause() {
+        reportLifecycle("PAUSED")
+        super.onPause()
+    }
+
+    override fun onStop() {
+        reportLifecycle("STOPPED")
+        super.onStop()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -72,6 +114,7 @@ class AviatorReplayActivity : Activity() {
     }
 
     override fun onDestroy() {
+        reportLifecycle("DESTROYED")
         try { unregisterReceiver(commandReceiver) } catch (_: Throwable) {}
         super.onDestroy()
     }

@@ -91,7 +91,7 @@ class MainActivity : Activity() {
         } else {
             startService(service)
         }
-        status.text="Monitor active — waiting for the Aviator live screen."
+        status.text="Monitor active — waiting for the live game screen."
     }
 
     private fun showStatement(){
@@ -106,7 +106,7 @@ class MainActivity : Activity() {
         val all=RoundRecordStore(this).all()
         rounds.text="Recorded rounds: ${all.size}"
         if(all.isEmpty()){
-            statement.text="Statement Area: waiting for recorded Aviator rounds."
+            statement.text="Statement Area: waiting for recorded rounds."
             return
         }
         val recent=all.takeLast(8).asReversed().joinToString("\n"){r->

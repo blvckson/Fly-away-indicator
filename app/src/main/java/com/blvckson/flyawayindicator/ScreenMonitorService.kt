@@ -275,7 +275,7 @@ class ScreenMonitorService : Service() {
             indicatorStartPlaneX=Float.NaN
             indicatorStartPlaneY=Float.NaN
             indicatorFlightProgress=0.0
-            lastIndicatorSignalReport="Signal indices /100 — waiting for Aviator screen."
+            lastIndicatorSignalReport="Signal indices /100 — waiting for game screen."
             latchedRedSignalReport=""
             indicatorBaseline.clear()
             indicatorChanges.clear()
@@ -616,7 +616,7 @@ class ScreenMonitorService : Service() {
         }
 
         when(indicatorPhaseMachine.phase){
-            IndicatorPhase.BLACK -> publish("WAITING FOR AVIATOR",false,
+            IndicatorPhase.BLACK -> publish("WAITING FOR GAME SCREEN",false,
                 "Indicator is black. Waiting for verified live-round evidence.")
             IndicatorPhase.GREEN -> publish("ROUND VISUAL MONITORING — GREEN",false,
                 "Aviator live round confirmed. Tracking visual behaviour for the pre-fly-away change.")
@@ -800,7 +800,7 @@ class ScreenMonitorService : Service() {
         }
         if(!overlayExpanded) return marker+status+"\nTap to expand · pinch to resize"
         val history=overlayEvents.toList().takeLast(5).joinToString("\n")
-        val current=if(history.isBlank()) "Waiting for Aviator screen confirmation" else history
+        val current=if(history.isBlank()) "Waiting for game screen confirmation" else history
         val recordingLine=if(recording) "Recorder: ON · Round $round · Frames $roundFrames" else "Recorder: OFF"
         val multiplier=if(endingMultiplier.isBlank()) "Final multiplier: reading / not confirmed" else "Final multiplier: $endingMultiplier"
         val analysis=if(status.contains("ANALYSIS PENDING")) "Analysis: queued" else if(status.contains("analysis complete",true) || status.contains("SAVED",true)) "Analysis: processing / saved" else "Analysis: waiting for round end"
@@ -851,7 +851,7 @@ class ScreenMonitorService : Service() {
         image.setBackgroundColor(0xFF101010.toInt())
         image.layoutParams=LinearLayout.LayoutParams(previewWidth,previewHeight)
         val label=TextView(this)
-        label.text="● WAITING FOR AVIATOR\nLIVE CAPTURE PREVIEW — waiting for first frame\nDrag to move · tap to hide/show preview · pinch to resize"
+        label.text="● WAITING FOR GAME SCREEN\nLIVE CAPTURE PREVIEW — waiting for first frame\nDrag to move · tap to hide/show preview · pinch to resize"
         label.textSize=overlayTextSize
         label.setTextColor(0xFFFFFFFF.toInt())
         label.setPadding(10,8,10,8)
@@ -912,7 +912,7 @@ class ScreenMonitorService : Service() {
                 if(!touchMoved){
                     val visible=image.visibility==android.view.View.VISIBLE
                     image.visibility=if(visible) android.view.View.GONE else android.view.View.VISIBLE
-                    label.text=buildOverlayText(if(recording) "RECORDING ROUND $round" else "WAITING FOR AVIATOR",indicatorPreDetected)
+                    label.text=buildOverlayText(if(recording) "RECORDING ROUND $round" else "WAITING FOR GAME SCREEN",indicatorPreDetected)
                     if(!visible) label.text=label.text.toString()+"\nLive preview: actual captured screen"
                 }
                 overlayPrefs.edit().putInt("x",lp.x).putInt("y",lp.y).apply()

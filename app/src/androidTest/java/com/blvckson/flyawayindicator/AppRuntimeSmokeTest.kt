@@ -122,12 +122,12 @@ class AppRuntimeSmokeTest {
                 }
             )
 
-            // A WAITING FOR AVIATOR status is published by processFrame(). Seeing it
+            // A WAITING FOR GAME SCREEN status is published by processFrame(). Seeing it
             // proves the emulator's MediaProjection -> VirtualDisplay -> ImageReader
             // callback reached the app's real frame-processing loop.
             assertTrue(
                 "No captured frame reached the monitor's processFrame() status path.",
-                device.wait(Until.hasObject(By.textContains("WAITING FOR AVIATOR")), 20_000L)
+                device.wait(Until.hasObject(By.textContains("WAITING FOR GAME SCREEN")), 20_000L)
             )
         } finally {
             context.stopService(Intent(context, ScreenMonitorService::class.java))

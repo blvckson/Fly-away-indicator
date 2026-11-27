@@ -99,9 +99,10 @@ class AviatorTextVerifier {
                     val cashOutPresent = text.contains("cash out") || text.contains("cashout")
                     val betControl = text.contains("bet") &&
                         (text.contains("auto") || cashOutPresent)
-                    // Aviator branding or live/bet controls keep the screen session
-                    // alive across flights and OCR frames between rounds.
-                    if (aviatorWord || betControl) {
+                    // Do not let this app's own waiting text (or unrelated text that
+                    // merely mentions Aviator) start a GREEN screen session. Require
+                    // the game marker/control to be paired with an on-screen multiplier.
+                    if (multiplierPresent && (aviatorWord || betControl)) {
                         screenPresenceUntil = System.currentTimeMillis() + 5_000L
                     }
                     val match = multiplierPresent && (aviatorWord || betControl)

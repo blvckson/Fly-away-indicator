@@ -1,6 +1,9 @@
 package com.blvckson.flyawayindicator
 
 import android.app.Activity
+import android.content.BroadcastReceiver
+import android.content.Intent
+import android.content.IntentFilter
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -22,7 +25,29 @@ import kotlin.math.sin
  * This is synthetic test input, not a substitute for labelled real-game recordings.
  */
 class AviatorReplayActivity : Activity() {
+    companion object {
+        const val ACTION_SHOW_CALIBRATION = "com.blvckson.flyawayindicator.TEST_REPLAY_CALIBRATION"
+        const val ACTION_BEGIN_ROUND = "com.blvckson.flyawayindicator.TEST_REPLAY_BEGIN"
+        const val ACTION_SHOW_NEUTRAL = "com.blvckson.flyawayindicator.TEST_REPLAY_NEUTRAL"
+        const val ACTION_FINISH = "com.blvckson.flyawayindicator.TEST_REPLAY_FINISH"
+        const val EXTRA_DURATION_MS = "duration_ms"
+        const val EXTRA_SIGNAL_AT_MS = "signal_at_ms"
+    }
+
     private lateinit var replayView: AviatorReplayView
+    private val commandReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: android.content.Context?, intent: Intent?) {
+            when (intent?.action) {
+                ACTION_SHOW_CALIBRATION -> replayView.showCalibrationScene()
+                ACTION_BEGIN_ROUND -> replayView.beginReplayRound(
+                    intent.getLongExtra(EXTRA_DURATION_MS, 0L),
+                    intent.getLongExtra(EXTRA_SIGNAL_AT_MS, Long.MAX_VALUE)
+                )
+                ACTION_SHOW_NEUTRAL -> replayView.showNeutralScene()
+                ACTION_FINISH -> finish()
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -37,16 +62,19 @@ class AviatorReplayActivity : Activity() {
             )
         replayView = AviatorReplayView(this)
         setContentView(replayView)
+        val filter = IntentFilter().apply {
+            addAction(ACTION_SHOW_CALIBRATION)
+            addAction(ACTION_BEGIN_ROUND)
+            addAction(ACTION_SHOW_NEUTRAL)
+            addAction(ACTION_FINISH)
+        }
+        registerReceiver(commandReceiver, filter)
     }
 
-    fun showCalibrationScene() = replayView.showCalibrationScene()
-
-    fun beginReplayRound(durationMs: Long, signalAtMs: Long) =
-        replayView.beginReplayRound(durationMs, signalAtMs)
-
-    fun showNeutralScene() = replayView.showNeutralScene()
-
-    fun debugState(): String = replayView.debugState()
+    override fun onDestroy() {
+        try { unregisterReceiver(commandReceiver) } catch (_: Throwable) {}
+        super.onDestroy()
+    }
 }
 
 private class AviatorReplayView(context: android.content.Context) : View(context) {

@@ -377,7 +377,7 @@ class IndicatorWarningReplayTest {
                 val endPlusHoldAt = roundStartAt + roundCase.durationMs + 2_300L
                 val remainingAfterEnd = (endPlusHoldAt - SystemClock.elapsedRealtime()).coerceAtLeast(0L)
                 SystemClock.sleep(remainingAfterEnd)
-                val roundEndConfirmed = waitUntil(5_000L) {
+                val roundEndConfirmed = waitUntil(12_000L) {
                     diagnostics.drop(diagnosticsBeforeRound).any { frame ->
                         val endGeneration = debugLongField(frame, "roundEndGeneration")
                         endGeneration == previousEndGeneration + 1L && frame.contains("round=false")

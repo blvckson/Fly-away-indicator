@@ -275,9 +275,12 @@ private class AviatorReplayView(context: android.content.Context) : View(context
             val planeY = h * (0.66f - 0.70f * progress - 0.04f * ramp).coerceAtLeast(0.15f)
             drawAircraft(canvas, planeX, planeY, w * 0.090f)
         } else if (ended) {
-            text.color = Color.WHITE
-            text.textSize = h * 0.044f
-            canvas.drawText("FLEW AWAY", w * 0.50f, h * 0.39f, text)
+            // The flight panel is deliberately bright at the end of the replay.
+            // Use large dark result text so real ML Kit OCR can identify FLEW AWAY
+            // instead of seeing low-contrast white text on a pale background.
+            text.color = Color.rgb(8, 18, 32)
+            text.textSize = h * 0.080f
+            canvas.drawText("FLEW AWAY", w * 0.50f, h * 0.41f, text)
         }
 
         // The real monitor captures the screen on its ImageReader callback. Keep

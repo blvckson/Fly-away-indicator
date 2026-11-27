@@ -157,10 +157,24 @@ class IndicatorWarningReplayTest {
                 afterMs = SystemClock.elapsedRealtime(),
                 timeoutMs = 45_000L
             )
-            assertNotNull(
-                "The real OCR/visual monitor never recognised the synthetic Aviator screen and entered GREEN.",
-                firstGreen
-            )
+            if (firstGreen == null) {
+                // Capture the exact screen and detector telemetry when identity never
+                // becomes GREEN. This keeps a setup failure diagnosable from CI instead
+                // of reporting only a generic first-GREEN assertion.
+                val screenshotSaved = device.takeScreenshot(File("/sdcard/aviator-replay-failure.png"))
+                val foreground = try {
+                    device.executeShellCommand("dumpsys activity top | head -n 35").trim()
+                } catch (failure: Throwable) {
+                    "foreground unavailable: ${failure.javaClass.simpleName}"
+                }
+                throw AssertionError(
+                    "The real OCR/visual monitor never recognised the synthetic Aviator screen and entered GREEN. " +
+                        "screenshotSaved=$screenshotSaved; currentPackage=${device.currentPackageName}; " +
+                        "foreground=$foreground; statuses=${events.takeLast(8).joinToString { it.status }}; " +
+                        "diagnostics count=${diagnostics.size}; first=${diagnostics.take(8).joinToString(" | ")}; " +
+                        "last=${diagnostics.takeLast(20).joinToString(" | ")}"
+                )
+            }
 
             val durationProfiles = listOf(
                 RoundCase("short", 9_000L, 4_800L),

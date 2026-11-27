@@ -176,19 +176,11 @@ private class AviatorReplayView(context: android.content.Context) : View(context
         canvas.drawText("AUTO", w * 0.50f, h * 0.79f, text)
         canvas.drawText("CASH OUT", w * 0.70f, h * 0.79f, text)
 
-        if (!ended) {
-            val planeX = if (stage == Stage.CALIBRATION) {
-                w * (0.30f + 0.035f * ((sin(now / 650.0) + 1.0) * 0.5).toFloat())
-            } else {
-                w * (0.28f + 0.58f * progress)
-            }
-            val planeY = if (stage == Stage.CALIBRATION) {
-                h * (0.46f - 0.012f * sin(now / 800.0).toFloat())
-            } else {
-                h * (0.49f - 0.22f * progress)
-            }
+        if (!ended && stage != Stage.CALIBRATION) {
+            val planeX = w * (0.28f + 0.58f * progress)
+            val planeY = h * (0.49f - 0.22f * progress)
             drawAircraft(canvas, planeX, planeY, w * 0.060f)
-        } else {
+        } else if (ended) {
             text.color = Color.WHITE
             text.textSize = h * 0.044f
             canvas.drawText("FLEW AWAY", w * 0.50f, h * 0.39f, text)

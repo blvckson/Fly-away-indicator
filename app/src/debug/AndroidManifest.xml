@@ -2,7 +2,7 @@
     <application>
         <activity
             android:name=".AviatorReplayActivity"
-            android:exported="true"
+            android:exported="false"
             android:screenOrientation="portrait"
             android:theme="@android:style/Theme.Material.Light.NoActionBar" />
     </application>

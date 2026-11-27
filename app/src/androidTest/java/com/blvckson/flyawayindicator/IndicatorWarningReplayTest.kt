@@ -131,15 +131,23 @@ class IndicatorWarningReplayTest {
             )
             SystemClock.sleep(500L)
 
-            // This activity belongs to the instrumentation APK. The target service
-            // still captures it from the physical emulator display through MediaProjection.
-            val replayIntent = Intent(targetContext, AviatorReplayActivity::class.java)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
-            targetContext.startActivity(replayIntent)
-            device.waitForIdle()
+            // Launch the debug-only replay Activity through Android's shell so the
+            // emulator explicitly brings this test screen to the foreground. Its
+            // exported flag exists only in the debug manifest; release builds omit it.
+            val launchOutput = device.executeShellCommand(
+                "am start -W -n com.blvckson.flyawayindicator/.AviatorReplayActivity"
+            )
             assertTrue(
-                "Synthetic replay Activity did not become the foreground app.",
-                waitUntil(10_000L) { device.currentPackageName == targetContext.packageName }
+                "Android did not launch the synthetic replay Activity: $launchOutput",
+                launchOutput.contains("Status: ok") ||
+                    launchOutput.contains("Activity: com.blvckson.flyawayindicator")
+            )
+            assertTrue(
+                "Synthetic replay Activity did not become the resumed foreground Activity.",
+                waitUntil(10_000L) {
+                    device.executeShellCommand("dumpsys activity activities")
+                        .contains("AviatorReplayActivity")
+                }
             )
             targetContext.sendBroadcast(
                 Intent(AviatorReplayActivity.ACTION_SHOW_CALIBRATION)

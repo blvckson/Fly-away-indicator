@@ -72,6 +72,14 @@ class IndicatorWarningReplayTest {
                             " elapsed=${intent.getLongExtra("roundElapsedMs", 0L)}" +
                             " frames=${intent.getIntExtra("indicatorFrames", 0)}" +
                             " progress=${"%.3f".format(java.util.Locale.US, intent.getDoubleExtra("flightProgress", 0.0))}" +
+                            " trend=${"%.3f".format(java.util.Locale.US, intent.getDoubleExtra("trend", 0.0))}" +
+                            " central=${"%.3f".format(java.util.Locale.US, intent.getDoubleExtra("central", 0.0))}" +
+                            " aircraftSignal=${"%.3f".format(java.util.Locale.US, intent.getDoubleExtra("aircraftSignal", 0.0))}" +
+                            " movementSignal=${"%.3f".format(java.util.Locale.US, intent.getDoubleExtra("movementSignal", 0.0))}" +
+                            " multiplierSignal=${"%.3f".format(java.util.Locale.US, intent.getDoubleExtra("multiplierSignal", 0.0))}" +
+                            " candidate=${"%.3f".format(java.util.Locale.US, intent.getDoubleExtra("candidate", 0.0))}" +
+                            " baseline=${"%.3f".format(java.util.Locale.US, intent.getDoubleExtra("baselineScore", 0.0))}" +
+                            " baselineSamples=${intent.getIntExtra("baselineSamples", 0)}" +
                             " signals=${intent.getIntExtra("independentSignals", 0)}" +
                             " pre=${intent.getBooleanExtra("preEvidence", false)}" +
                             " hold=${intent.getIntExtra("preHold", 0)}" +
@@ -306,6 +314,7 @@ class IndicatorWarningReplayTest {
                         "replayState=$replayStateOnFailure; foreground=$foregroundOnFailure; " +
                         "screenshotSaved=$screenshotSaved; diagnostics count=${diagnostics.size}: " +
                         "first=${diagnostics.take(6).joinToString(" | ")}; " +
+                        "roundTrace=${diagnostics.filter { it.contains("round=true") }.takeLast(45).joinToString(" | ")}; " +
                         "last=${diagnostics.takeLast(12).joinToString(" | ")}; " +
                         "replayLifecycle=${replayLifecycleEvents.takeLast(12).joinToString(" | ")}",
                     redEvent

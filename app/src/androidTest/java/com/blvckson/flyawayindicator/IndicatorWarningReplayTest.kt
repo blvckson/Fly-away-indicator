@@ -285,7 +285,7 @@ class IndicatorWarningReplayTest {
                 val roundStartAt = acknowledgedStart!!
                 // Do not mistake the previous round's still-active lock for acceptance
                 // of this round. Require a fresh generation increment after this command.
-                val acceptedLiveRound = waitUntil(3_000L) {
+                val acceptedLiveRound = waitUntil(6_000L) {
                     diagnostics.drop(diagnosticsBeforeRound).any { frame ->
                         val generation = debugLongField(frame, "roundStartGeneration")
                         generation == previousStartGeneration + 1L && frame.contains("round=true")

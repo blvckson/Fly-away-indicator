@@ -175,22 +175,23 @@ class IndicatorWarningReplayTest {
                     afterMs = roundStartAt,
                     timeoutMs = roundCase.durationMs + 4_000L
                 )
-                val replayStateOnFailure = if (redEvent == null) {
-                    try {
-                        replayScenario?.onActivity { activity -> activity.debugState() } ?: "replay activity unavailable"
-                    } catch (failure: Throwable) {
-                        "replay activity state unavailable: ${failure.javaClass.simpleName}"
-                    }
-                } else ""
+                var replayStateOnFailure = ""
                 val foregroundOnFailure = if (redEvent == null) {
                     try {
-                        device.executeShellCommand(
-                            "dumpsys activity activities | grep -E 'mResumedActivity|topResumedActivity' | tail -n 2"
-                        ).trim()
+                        device.executeShellCommand("dumpsys activity top | head -n 35").trim()
                     } catch (failure: Throwable) {
                         "foreground unavailable: ${failure.javaClass.simpleName}"
                     }
                 } else ""
+                if (redEvent == null) {
+                    try {
+                        replayScenario?.onActivity { activity ->
+                            replayStateOnFailure = activity.debugState()
+                        }
+                    } catch (failure: Throwable) {
+                        replayStateOnFailure = "replay activity state unavailable: ${failure.javaClass.simpleName}"
+                    }
+                }
                 val screenshotSaved = if (redEvent == null) {
                     // Preserve the actual emulator display so a failed replay can be
                     // visually diagnosed instead of guessing from detector counters.

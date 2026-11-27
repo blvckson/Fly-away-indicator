@@ -88,7 +88,7 @@ class IndicatorWarningReplayTest {
         }
         targetContext.registerReceiver(receiver, statusFilter)
         var mainScenario: ActivityScenario<MainActivity>? = null
-        var replayActivity: AviatorReplayActivity? = null
+        var replayScenario: ActivityScenario<AviatorReplayActivity>? = null
 
         try {
             assertTrue(
@@ -134,11 +134,8 @@ class IndicatorWarningReplayTest {
 
             // This activity belongs to the instrumentation APK. The target service
             // still captures it from the physical emulator display through MediaProjection.
-            val replayIntent = Intent(targetContext, AviatorReplayActivity::class.java)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
-            replayActivity =
-                instrumentation.startActivitySync(replayIntent) as AviatorReplayActivity
-            replayActivity!!.showCalibrationScene()
+            replayScenario = ActivityScenario.launch(AviatorReplayActivity::class.java)
+            replayScenario!!.onActivity { activity -> activity.showCalibrationScene() }
             val firstGreen = awaitStatus(
                 events = events,
                 status = "ROUND VISUAL MONITORING — GREEN",
@@ -168,7 +165,9 @@ class IndicatorWarningReplayTest {
             for ((index, roundCase) in cases.withIndex()) {
                 val redCountBefore = events.count { it.status == "PRE-FLY-AWAY DETECTED" }
                 val roundStartAt = SystemClock.elapsedRealtime()
-                replayActivity!!.beginReplayRound(roundCase.durationMs, roundCase.signalAtMs)
+                replayScenario!!.onActivity { activity ->
+                    activity.beginReplayRound(roundCase.durationMs, roundCase.signalAtMs)
+                }
 
                 val redEvent = awaitStatus(
                     events = events,
@@ -179,9 +178,22 @@ class IndicatorWarningReplayTest {
                 if (redEvent == null) {
                     // Preserve the actual emulator display so a failed replay can be
                     // visually diagnosed instead of guessing from detector counters.
-                    device.takeScreenshot(File("/sdcard/aviator-replay-failure.png"))
+                    val screenshotSaved = device.takeScreenshot(File("/sdcard/aviator-replay-failure.png"))
+                    val replayState = try {
+                        replayScenario?.onActivity { activity -> activity.debugState() } ?: "replay activity unavailable"
+                    } catch (failure: Throwable) {
+                        "replay activity state unavailable: ${failure.javaClass.simpleName}"
+                    }
+                    val foreground = try {
+                        device.executeShellCommand(
+                            "dumpsys activity activities | grep -E 'mResumedActivity|topResumedActivity' | tail -n 2"
+                        ).trim()
+                    } catch (failure: Throwable) {
+                        "foreground unavailable: ${failure.javaClass.simpleName}"
+                    }
                     System.out.println(
-                        "AVIATOR_REPLAY_DIAGNOSTICS count=${diagnostics.size} " +
+                        "AVIATOR_REPLAY_DIAGNOSTICS count=${diagnostics.size} screenshotSaved=$screenshotSaved " +
+                            "replayState=$replayState foreground=$foreground " +
                             diagnostics.joinToString(" || ")
                     )
                 }
@@ -262,7 +274,7 @@ class IndicatorWarningReplayTest {
 
             // Leave the Aviator screen and verify that BLACK is reserved for a
             // genuinely absent screen, not the gap between its rounds.
-            replayActivity!!.showNeutralScene()
+            replayScenario!!.onActivity { activity -> activity.showNeutralScene() }
             val blackAfterLeavingScreen = awaitStatus(
                 events = events,
                 status = "WAITING FOR AVIATOR",
@@ -274,9 +286,7 @@ class IndicatorWarningReplayTest {
                 blackAfterLeavingScreen
             )
         } finally {
-            try {
-                replayActivity?.runOnUiThread { replayActivity?.finish() }
-            } catch (_: Throwable) {}
+            try { replayScenario?.close() } catch (_: Throwable) {}
             try { mainScenario?.close() } catch (_: Throwable) {}
             try { targetContext.stopService(Intent(targetContext, ScreenMonitorService::class.java)) } catch (_: Throwable) {}
             try { targetContext.unregisterReceiver(receiver) } catch (_: Throwable) {}

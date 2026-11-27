@@ -45,6 +45,8 @@ class AviatorReplayActivity : Activity() {
         replayView.beginReplayRound(durationMs, signalAtMs)
 
     fun showNeutralScene() = replayView.showNeutralScene()
+
+    fun debugState(): String = replayView.debugState()
 }
 
 private class AviatorReplayView(context: android.content.Context) : View(context) {
@@ -73,6 +75,15 @@ private class AviatorReplayView(context: android.content.Context) : View(context
     fun showNeutralScene() {
         stage = Stage.NEUTRAL
         postInvalidate()
+    }
+
+    fun debugState(): String {
+        val elapsed = if (roundStartedAt > 0L)
+            (SystemClock.elapsedRealtime() - roundStartedAt).coerceAtLeast(0L) else 0L
+        val progress = if (roundDurationMs > 0L)
+            (elapsed.toDouble() / roundDurationMs).coerceIn(0.0, 1.0) else 0.0
+        return "stage=$stage size=${width}x${height} elapsedMs=$elapsed " +
+            "durationMs=$roundDurationMs progress=$progress signalAtMs=$signalAtMs"
     }
 
     fun showCalibrationScene() {

@@ -77,40 +77,14 @@ jobs:
           profile: Nexus 6
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
           disable-animations: true
-          script: |
-            # Maven Central can transiently rate-limit fresh emulator runners (HTTP 429).
-            # Retry idempotent Gradle tasks with increasing delays before failing CI.
-            run_gradle_with_retry() {
-              local attempt=1
-              while [ "$attempt" -le 4 ]; do
-                if gradle "$@" --no-daemon; then
-                  return 0
-                fi
-                if [ "$attempt" -lt 4 ]; then
-                  sleep $((attempt * 20))
-                fi
-                attempt=$((attempt + 1))
-              done
-              return 1
-            }
-            # Install both APKs first; appops cannot target a package before Android
-            # has registered its UID on the emulator.
-            run_gradle_with_retry installDebug installDebugAndroidTest
-            adb shell pm path com.blvckson.flyawayindicator
-            adb shell pm path com.blvckson.flyawayindicator.test
-            adb shell appops set com.blvckson.flyawayindicator SYSTEM_ALERT_WINDOW allow
-            adb shell appops get com.blvckson.flyawayindicator SYSTEM_ALERT_WINDOW
-            # Reuse the installed APKs so the appops grant is not disturbed by a
-            # second install step while connected instrumentation tests start.
-            # Retry transient Maven Central 429s; connected tests are idempotent because
-            # the run starts from a freshly installed app and the test cleans up its service.
-            set +e
-            run_gradle_with_retry connectedDebugAndroidTest -x installDebug -x installDebugAndroidTest
-            test_result=$?
-            mkdir -p app/build/reports/androidTests/connected
-            adb pull /sdcard/aviator-replay-failure.png app/build/reports/androidTests/connected/aviator-replay-failure.png || true
-            exit $test_result
+          script: bash .github/scripts/run-emulator-runtime.sh
       - name: Upload emulator test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: emulator-runtime-test-reports
+          path: app/build/reports/androidTests/connected/
+          if-no-files-found: ignore
         if: always()
         uses: actions/upload-artifact@v4
         with:

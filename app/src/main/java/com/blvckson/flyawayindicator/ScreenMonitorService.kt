@@ -27,6 +27,7 @@ class ScreenMonitorService : Service() {
     companion object {
         const val ACTION_STATUS="com.blvckson.flyawayindicator.STATUS"
         const val ACTION_DEBUG_FRAME="com.blvckson.flyawayindicator.DEBUG_FRAME"
+        const val ACTION_DEBUG_HIDE_PREVIEW="com.blvckson.flyawayindicator.DEBUG_HIDE_PREVIEW"
         const val EXTRA_STATUS="status"
         const val EXTRA_STATEMENT="statement"
         const val EXTRA_ROUNDS="rounds"
@@ -116,6 +117,14 @@ class ScreenMonitorService : Service() {
     private var latchedRedSignalReport=""
     // Debug-build-only telemetry for calibrating the synthetic warning replay.
     private var lastDebugFrameBroadcastAtMs=0L
+    private val debugCommandReceiver=object : android.content.BroadcastReceiver(){
+        override fun onReceive(context:android.content.Context?,intent:Intent?){
+            if(intent?.action==ACTION_DEBUG_HIDE_PREVIEW &&
+                (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE)!=0){
+                main.post { preview?.visibility=android.view.View.GONE }
+            }
+        }
+    }
 
     override fun onCreate(){
         super.onCreate()
@@ -127,6 +136,7 @@ class ScreenMonitorService : Service() {
         thread.start()
         handler=Handler(thread.looper)
         main=Handler(Looper.getMainLooper())
+        registerReceiver(debugCommandReceiver,android.content.IntentFilter(ACTION_DEBUG_HIDE_PREVIEW))
         overlayTextSize=overlayPrefs.getFloat("text_size",13f).coerceIn(10f,24f)
         overlayExpanded=overlayPrefs.getBoolean("expanded",true)
         showOverlay()
@@ -949,6 +959,7 @@ class ScreenMonitorService : Service() {
     }
 
     override fun onDestroy(){
+        try{unregisterReceiver(debugCommandReceiver)}catch(_:Throwable){}
         try{finishRound()}catch(_:Throwable){}
         reader?.close();reader=null;projection?.stop();projection=null
         recorder?.release();recorder=null

@@ -122,6 +122,15 @@ class IndicatorWarningReplayTest {
             mainScenario.close()
             mainScenario = null
 
+            // The monitor's debug preview is a floating window above the captured
+            // screen. Hide that preview in this synthetic replay so it cannot cover
+            // the moving aircraft and invalidate the screen-detection measurement.
+            targetContext.sendBroadcast(
+                Intent(ScreenMonitorService.ACTION_DEBUG_HIDE_PREVIEW)
+                    .setPackage(targetContext.packageName)
+            )
+            SystemClock.sleep(500L)
+
             // This activity belongs to the instrumentation APK. The target service
             // still captures it from the physical emulator display through MediaProjection.
             val replayIntent = Intent(targetContext, AviatorReplayActivity::class.java)

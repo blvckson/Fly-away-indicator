@@ -53,7 +53,7 @@ class IndicatorWarningReplayTest {
             }
         }
 
-        testContext.registerReceiver(receiver, IntentFilter(ScreenMonitorService.ACTION_STATUS))
+        targetContext.registerReceiver(receiver, IntentFilter(ScreenMonitorService.ACTION_STATUS))
         var mainScenario: ActivityScenario<MainActivity>? = null
         var replayActivity: AviatorReplayActivity? = null
 
@@ -219,7 +219,7 @@ class IndicatorWarningReplayTest {
             } catch (_: Throwable) {}
             try { mainScenario?.close() } catch (_: Throwable) {}
             try { targetContext.stopService(Intent(targetContext, ScreenMonitorService::class.java)) } catch (_: Throwable) {}
-            try { testContext.unregisterReceiver(receiver) } catch (_: Throwable) {}
+            try { targetContext.unregisterReceiver(receiver) } catch (_: Throwable) {}
         }
     }
 

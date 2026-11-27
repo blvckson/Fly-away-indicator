@@ -259,7 +259,10 @@ private class AviatorReplayView(context: android.content.Context) : View(context
         text.textSize = h * 0.020f
         canvas.drawText("BET", w * 0.31f, h * 0.79f, text)
         canvas.drawText("AUTO", w * 0.50f, h * 0.79f, text)
-        canvas.drawText("CASH OUT", w * 0.70f, h * 0.79f, text)
+        // Once FLEW AWAY is displayed, the result screen no longer exposes CASH OUT.
+        // This lets the production round-end fallback verify the returned BET/AUTO UI
+        // when OCR misses the explicit FLEW AWAY text.
+        if (!ended) canvas.drawText("CASH OUT", w * 0.70f, h * 0.79f, text)
 
         if (!ended && stage != Stage.CALIBRATION) {
             // Keep the synthetic aircraft clear of the top-left floating overlay area.
@@ -268,8 +271,8 @@ private class AviatorReplayView(context: android.content.Context) : View(context
             // Give the replay aircraft enough measured travel by each injected
             // pre-warning time to exercise the production flightProgress gate.
             // This is test-only motion; no production thresholds are relaxed.
-            val planeX = w * (0.51f + 0.26f * progress + 0.07f * ramp)
-            val planeY = h * (0.55f - 0.32f * progress - 0.07f * ramp)
+            val planeX = w * (0.51f + 0.38f * progress + 0.04f * ramp).coerceAtMost(0.86f)
+            val planeY = h * (0.66f - 0.70f * progress - 0.04f * ramp).coerceAtLeast(0.15f)
             drawAircraft(canvas, planeX, planeY, w * 0.090f)
         } else if (ended) {
             text.color = Color.WHITE

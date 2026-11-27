@@ -37,7 +37,8 @@ internal object LiveStartPolicy {
  * screen-presence evidence alone controls when the indicator resets to BLACK.
  */
 internal class IndicatorPhaseMachine(
-    private val redVisibleDurationMs: Long = 1_200L
+    private val redVisibleDurationMs: Long = 1_200L,
+    private val screenMissingGraceMs: Long = 6_000L
 ) {
     var phase: IndicatorPhase = IndicatorPhase.BLACK
         private set
@@ -47,11 +48,7 @@ internal class IndicatorPhaseMachine(
     private var roundActive = false
     private var endMarkerLatched = false
     private var redIssuedThisRound = false
-    private var consistencyFallbackPending = false
-
-    /** True only when the current RED came from the consistency fallback, not signal scoring. */
-    var lastAlertWasConsistencyFallback: Boolean = false
-        private set
+    private var screenMissingSinceMs: Long? = null
 
     /** Increments once when a new, positively identified round is first accepted. */
     var roundStartGeneration: Long = 0L
@@ -69,6 +66,7 @@ internal class IndicatorPhaseMachine(
 
     init {
         require(redVisibleDurationMs >= 1L)
+        require(screenMissingGraceMs >= 1L)
     }
 
     /**
@@ -76,11 +74,26 @@ internal class IndicatorPhaseMachine(
      * screen is detected or after its presence evidence expires. Once active,
      * GREEN remains visible between rounds; RED is the only temporary change.
      */
-    fun observeScreenPresence(screenPresent: Boolean): IndicatorPhase {
+    fun observeScreenPresence(
+        screenPresent: Boolean,
+        nowMs: Long = System.nanoTime() / 1_000_000L
+    ): IndicatorPhase {
         if (!screenPresent) {
-            if (aviatorScreenActive) reset()
+            if (aviatorScreenActive) {
+                val missingSince = screenMissingSinceMs
+                if (missingSince == null || nowMs < missingSince) {
+                    screenMissingSinceMs = nowMs
+                } else if (nowMs - missingSince >= screenMissingGraceMs) {
+                    // Close the whole session only after continuous absence. Short OCR
+                    // gaps between rounds must not reset the phase machine or round lock.
+                    reset()
+                }
+            }
             return phase
         }
+
+        // Any fresh positive evidence cancels the pending close timer.
+        screenMissingSinceMs = null
         if (!aviatorScreenActive) {
             aviatorScreenActive = true
             phase = IndicatorPhase.GREEN
@@ -88,8 +101,6 @@ internal class IndicatorPhaseMachine(
             roundActive = false
             endMarkerLatched = false
             redIssuedThisRound = false
-            consistencyFallbackPending = false
-            lastAlertWasConsistencyFallback = false
         }
         return phase
     }
@@ -101,7 +112,7 @@ internal class IndicatorPhaseMachine(
     ): IndicatorPhase {
         // A positively identified live round can establish the screen session
         // even before the first OCR identity sample is available.
-        if (visualLive && !aviatorScreenActive) observeScreenPresence(true)
+        if (visualLive && !aviatorScreenActive) observeScreenPresence(true, nowMs)
 
         if (!endConfirmed) endMarkerLatched = false
 
@@ -125,7 +136,6 @@ internal class IndicatorPhaseMachine(
         ) {
             phase = IndicatorPhase.GREEN
             redStartedAtMs = 0L
-            lastAlertWasConsistencyFallback = false
         }
 
         // A new positively-live round starts a new alert lifecycle without BLACK.
@@ -133,8 +143,6 @@ internal class IndicatorPhaseMachine(
             roundActive = true
             roundStartGeneration++
             redIssuedThisRound = false
-            consistencyFallbackPending = true
-            lastAlertWasConsistencyFallback = false
             phase = IndicatorPhase.GREEN
         }
 
@@ -148,36 +156,10 @@ internal class IndicatorPhaseMachine(
     fun markPreFlyAway(nowMs: Long = System.nanoTime() / 1_000_000L): IndicatorPhase {
         if (phase == IndicatorPhase.GREEN && roundActive && !redIssuedThisRound) {
             redIssuedThisRound = true
-            consistencyFallbackPending = false
-            lastAlertWasConsistencyFallback = false
             phase = IndicatorPhase.RED
             redStartedAtMs = nowMs
         }
         return phase
-    }
-
-    /**
-     * Issues one consistency warning on the first subsequent positively verified
-     * live capture. This is a per-round fallback, not a prediction of the exact
-     * pre-fly-away moment. Existing signal scoring may still issue RED earlier.
-     */
-    fun markConsistencyWarningIfDue(
-        visualLive: Boolean,
-        endConfirmed: Boolean,
-        isRoundStartFrame: Boolean,
-        nowMs: Long = System.nanoTime() / 1_000_000L
-    ): Boolean {
-        if (!roundActive || endConfirmed || !consistencyFallbackPending ||
-            isRoundStartFrame || !visualLive || phase != IndicatorPhase.GREEN
-        ) return false
-
-        val phaseBeforeWarning = phase
-        markPreFlyAway(nowMs)
-        if (phaseBeforeWarning == IndicatorPhase.GREEN && phase == IndicatorPhase.RED) {
-            lastAlertWasConsistencyFallback = true
-            return true
-        }
-        return false
     }
 
     fun reset() {
@@ -187,8 +169,7 @@ internal class IndicatorPhaseMachine(
         roundActive = false
         endMarkerLatched = false
         redIssuedThisRound = false
-        consistencyFallbackPending = false
-        lastAlertWasConsistencyFallback = false
+        screenMissingSinceMs = null
     }
 
     private fun finishRound() {
@@ -197,8 +178,6 @@ internal class IndicatorPhaseMachine(
         redStartedAtMs = 0L
         roundActive = false
         redIssuedThisRound = false
-        consistencyFallbackPending = false
-        lastAlertWasConsistencyFallback = false
         if (hadRound) roundEndGeneration++
     }
 }

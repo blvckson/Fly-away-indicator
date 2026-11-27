@@ -225,6 +225,7 @@ class ScreenMonitorService : Service() {
         val previousRoundStartGeneration=indicatorPhaseMachine.roundStartGeneration
         val previousRoundEndGeneration=indicatorPhaseMachine.roundEndGeneration
         val wasRoundActive=indicatorPhaseMachine.isRoundActive
+        val wasAviatorScreenActive=indicatorPhaseMachine.isAviatorScreenActive
         if(wasRoundActive){
             indicatorRoundEndDetector.observeFrame(
                 phaseNowMs,wallNowMs,planePresent,textEvidence
@@ -236,11 +237,42 @@ class ScreenMonitorService : Service() {
         val endConfirmed=textEvidence.endConfirmed || fallbackEndConfirmed
         val aviatorScreenPresent=visualLive || endConfirmed ||
             textVerifier.isAviatorScreenVisible(wallNowMs)
-        indicatorPhaseMachine.observeScreenPresence(aviatorScreenPresent)
+        indicatorPhaseMachine.observeScreenPresence(aviatorScreenPresent,nowMs=phaseNowMs)
+        val screenSessionEnded=wasAviatorScreenActive &&
+            !indicatorPhaseMachine.isAviatorScreenActive
         indicatorPhaseMachine.observeLive(visualLive,endConfirmed,nowMs=phaseNowMs)
         val roundStarted=indicatorPhaseMachine.roundStartGeneration!=previousRoundStartGeneration
         val roundEnded=indicatorPhaseMachine.roundEndGeneration!=previousRoundEndGeneration
         val currentIndicatorPhase=indicatorPhaseMachine.phase
+
+        if(screenSessionEnded){
+            // This is a confirmed screen-session expiry after the absence grace,
+            // not an individual missed frame. Clear session-scoped trackers so the
+            // next Aviator visit starts with a clean identity and round baseline.
+            indicatorRoundEndDetector.reset()
+            indicatorReacquisitionGate.reset()
+            indicatorRoundStartedAtMs=0L
+            indicatorWasLongRound=false
+            indicatorPreScore=0.0
+            indicatorPreHold=0
+            indicatorPreDetected=false
+            indicatorFrames=0
+            indicatorLastFrameAtMs=0L
+            indicatorBaselineScore=0.0
+            indicatorStartPlaneX=Float.NaN
+            indicatorStartPlaneY=Float.NaN
+            indicatorFlightProgress=0.0
+            lastIndicatorSignalReport="Signal indices /100 — waiting for Aviator screen."
+            latchedRedSignalReport=""
+            indicatorBaseline.clear()
+            indicatorChanges.clear()
+            recentChanges.clear()
+            lastMove=0.0
+            lastPlaneX=Float.NaN
+            lastPlaneY=Float.NaN
+            detector.resetTracking()
+            multiplierBehaviourTracker.reset()
+        }
 
         if(roundStarted){
             // Start fresh lifecycle helpers only for a genuinely new round. Seed
@@ -276,8 +308,8 @@ class ScreenMonitorService : Service() {
             indicatorPreDetected=false
         }else if(previousIndicatorPhase==IndicatorPhase.GREEN &&
             currentIndicatorPhase==IndicatorPhase.BLACK && !roundEnded){
-            // A temporary loss of positive screen evidence hides GREEN only.
-            // Preserve per-round baselines and lock; clear any partial confirmation.
+            // The Aviator screen-presence lease and absence grace have both expired.
+            // The session cleanup above has reset its round-scoped trackers.
             indicatorPreHold=0
             indicatorLastFrameAtMs=0L
             indicatorPreDetected=false
@@ -469,22 +501,6 @@ class ScreenMonitorService : Service() {
             indicatorPreHold=0
             indicatorLastFrameAtMs=0L
             if(skipForReacquisition) indicatorChanges.clear()
-        }
-
-        // Preserve the signal-backed pre-fly path above, but do not leave a
-        // positively identified round permanently GREEN when its visual signature
-        // is too subtle for the scoring thresholds. The first subsequent live
-        // capture gets one clearly labelled consistency warning. This is not an
-        // exact pre-fly-away prediction and cannot repeat within the same round.
-        if(indicatorPhaseMachine.markConsistencyWarningIfDue(
-                visualLive=visualLive,
-                endConfirmed=endConfirmed,
-                isRoundStartFrame=roundStarted,
-                nowMs=phaseNowMs
-            )){
-            indicatorPreDetected=true
-            latchedRedSignalReport="Consistency fallback — one warning for this positively identified round; not an exact pre-fly-away prediction."
-            vibrateForPreFlyAway()
         }
 
         // Round video recording, saving, and post-round analysis are intentionally

@@ -243,92 +243,12 @@ class IndicatorPhaseMachineTest {
 
 
     @Test
-    fun consistencyFallbackTurnsTheFirstFollowUpLiveCaptureRedOnlyOnce() {
-        val machine = IndicatorPhaseMachine()
-        assertEquals(
-            IndicatorPhase.GREEN,
-            machine.observeLive(visualLive = true, endConfirmed = false, nowMs = 1_000L)
-        )
-
-        // The accepted live-round start itself remains GREEN.
-        assertFalse(machine.markConsistencyWarningIfDue(
-            visualLive = true,
-            endConfirmed = false,
-            isRoundStartFrame = true,
-            nowMs = 1_000L
-        ))
-        assertEquals(IndicatorPhase.GREEN, machine.phase)
-
-        // The very next positively verified live capture issues the shared fallback.
-        assertTrue(machine.markConsistencyWarningIfDue(
-            visualLive = true,
-            endConfirmed = false,
-            isRoundStartFrame = false,
-            nowMs = 1_001L
-        ))
-        assertEquals(IndicatorPhase.RED, machine.phase)
-        assertTrue(machine.lastAlertWasConsistencyFallback)
-
-        // No second RED can be generated during the same round.
-        assertFalse(machine.markConsistencyWarningIfDue(
-            visualLive = true,
-            endConfirmed = false,
-            isRoundStartFrame = false,
-            nowMs = 1_002L
-        ))
-    }
-
-    @Test
-    fun consistencyFallbackWaitsForPositiveLiveEvidenceAfterTemporaryLoss() {
-        val machine = IndicatorPhaseMachine()
-        machine.observeLive(true, false, 1_000L)
-
-        assertFalse(machine.markConsistencyWarningIfDue(
-            visualLive = false, endConfirmed = false,
-            isRoundStartFrame = false, nowMs = 1_100L
-        ))
-        machine.observeLive(false, false, 1_200L)
-        machine.observeLive(false, false, 1_300L)
-        machine.observeLive(false, false, 1_400L)
-        assertEquals(IndicatorPhase.GREEN, machine.phase)
-        assertTrue(machine.isRoundActive)
-
-        // Reacquisition resumes the same round; the pending fallback is not lost.
-        assertEquals(IndicatorPhase.GREEN, machine.observeLive(true, false, 1_500L))
-        assertTrue(machine.markConsistencyWarningIfDue(
-            visualLive = true, endConfirmed = false,
-            isRoundStartFrame = false, nowMs = 1_501L
-        ))
-        assertEquals(IndicatorPhase.RED, machine.phase)
-        assertEquals(1L, machine.roundStartGeneration)
-    }
-
-    @Test
-    fun confirmedEndBlocksPendingFallbackAndNextRoundGetsAFreshOne() {
-        val machine = IndicatorPhaseMachine()
-        machine.observeLive(true, false, 1_000L)
-        assertEquals(IndicatorPhase.GREEN, machine.observeLive(false, true, 1_100L))
-        assertFalse(machine.markConsistencyWarningIfDue(
-            visualLive = true, endConfirmed = true,
-            isRoundStartFrame = false, nowMs = 1_101L
-        ))
-
-        assertEquals(IndicatorPhase.GREEN, machine.observeLive(true, false, 1_200L))
-        assertTrue(machine.markConsistencyWarningIfDue(
-            visualLive = true, endConfirmed = false,
-            isRoundStartFrame = false, nowMs = 1_201L
-        ))
-        assertEquals(2L, machine.roundStartGeneration)
-    }
-
-
-    @Test
     fun greenIsHeldAcrossTheWholeAviatorScreenSessionAndBlackReturnsOnlyOnClose() {
         val machine = IndicatorPhaseMachine()
         assertEquals(IndicatorPhase.BLACK, machine.phase)
 
-        assertEquals(IndicatorPhase.GREEN, machine.observeScreenPresence(true))
-        assertEquals(IndicatorPhase.GREEN, machine.observeScreenPresence(true))
+        assertEquals(IndicatorPhase.GREEN, machine.observeScreenPresence(true, nowMs = 1_000L))
+        assertEquals(IndicatorPhase.GREEN, machine.observeScreenPresence(true, nowMs = 2_000L))
 
         // The plane may be absent between flights while the Aviator screen stays open.
         repeat(20) {
@@ -338,8 +258,46 @@ class IndicatorPhaseMachineTest {
         }
         assertFalse(machine.isRoundActive)
 
-        assertEquals(IndicatorPhase.BLACK, machine.observeScreenPresence(false))
+        assertEquals(IndicatorPhase.GREEN, machine.observeScreenPresence(false, nowMs = 5_000L))
+        assertEquals(IndicatorPhase.GREEN, machine.observeScreenPresence(false, nowMs = 10_999L))
+        assertEquals(IndicatorPhase.BLACK, machine.observeScreenPresence(false, nowMs = 11_000L))
         assertFalse(machine.isAviatorScreenActive)
+    }
+
+    @Test
+    fun temporaryOcrLossKeepsGreenAndDoesNotReleaseTheCurrentRoundLock() {
+        val machine = IndicatorPhaseMachine(
+            redVisibleDurationMs = 1_200L,
+            screenMissingGraceMs = 6_000L
+        )
+        machine.observeScreenPresence(true, nowMs = 1_000L)
+        assertEquals(IndicatorPhase.GREEN, machine.observeLive(true, false, 1_000L))
+        assertEquals(IndicatorPhase.RED, machine.markPreFlyAway(1_100L))
+        assertEquals(IndicatorPhase.GREEN, machine.observeLive(false, false, 2_300L))
+
+        // The OCR presence lease can expire briefly between rounds or during a
+        // detector dropout. GREEN remains visible and the same round stays locked.
+        assertEquals(IndicatorPhase.GREEN, machine.observeScreenPresence(false, 2_400L))
+        assertEquals(IndicatorPhase.GREEN, machine.observeScreenPresence(false, 8_399L))
+        assertEquals(IndicatorPhase.GREEN, machine.observeScreenPresence(true, 8_400L))
+        assertTrue(machine.isRoundActive)
+        assertEquals(1L, machine.roundStartGeneration)
+        assertEquals(IndicatorPhase.GREEN, machine.markPreFlyAway(8_500L))
+        assertEquals(0L, machine.roundEndGeneration)
+    }
+
+    @Test
+    fun screenSessionClosesOnlyAfterContinuousAbsenceGrace() {
+        val machine = IndicatorPhaseMachine(screenMissingGraceMs = 6_000L)
+        machine.observeScreenPresence(true, 1_000L)
+        machine.observeLive(true, false, 1_000L)
+        assertTrue(machine.isRoundActive)
+
+        assertEquals(IndicatorPhase.GREEN, machine.observeScreenPresence(false, 2_000L))
+        assertEquals(IndicatorPhase.GREEN, machine.observeScreenPresence(false, 7_999L))
+        assertEquals(IndicatorPhase.BLACK, machine.observeScreenPresence(false, 8_000L))
+        assertFalse(machine.isAviatorScreenActive)
+        assertFalse(machine.isRoundActive)
     }
 
     @Test

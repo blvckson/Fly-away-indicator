@@ -108,12 +108,20 @@ class IndicatorWarningReplayTest {
                 firstGreen
             )
 
-            val cases = listOf(
+            val durationProfiles = listOf(
                 RoundCase("short", 9_000L, 4_800L),
                 RoundCase("medium", 15_000L, 11_000L),
                 RoundCase("long", 27_000L, 21_000L),
                 RoundCase("extremely-long", 42_000L, 35_000L)
             )
+            // Repeat each duration three times. One pass per duration is not a
+            // useful consistency sample; repeated rounds exercise lock release,
+            // inter-round GREEN persistence, and warning re-arming.
+            val cases = (1..3).flatMap { repetition ->
+                durationProfiles.map { profile ->
+                    profile.copy(name = "${profile.name}-${repetition}")
+                }
+            }
 
             for ((index, roundCase) in cases.withIndex()) {
                 val redCountBefore = events.count { it.status == "PRE-FLY-AWAY DETECTED" }

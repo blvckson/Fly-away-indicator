@@ -445,11 +445,14 @@ class IndicatorWarningReplayTest {
     }
 
     private fun debugLongField(frame: String, field: String): Long? {
-        return Regex("(?:^|\\s)" + Regex.escape(field) + "=(\\d+)")
-            .find(frame)
-            ?.groupValues
-            ?.getOrNull(1)
-            ?.toLongOrNull()
+        val marker = "$field="
+        val valueStart = frame.indexOf(marker)
+        if (valueStart < 0) return null
+        val firstDigit = valueStart + marker.length
+        var end = firstDigit
+        while (end < frame.length && frame[end].isDigit()) end++
+        if (end == firstDigit) return null
+        return frame.substring(firstDigit, end).toLongOrNull()
     }
 
     private fun awaitRoundStart(

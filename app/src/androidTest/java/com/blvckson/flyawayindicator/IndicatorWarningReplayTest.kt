@@ -445,7 +445,7 @@ class IndicatorWarningReplayTest {
     }
 
     private fun debugLongField(frame: String, field: String): Long? {
-        return Regex("(?:^|\\\\s)" + Regex.escape(field) + "=(\\\\d+)")
+        return Regex("(?:^|\\s)" + Regex.escape(field) + "=(\\d+)")
             .find(frame)
             ?.groupValues
             ?.getOrNull(1)

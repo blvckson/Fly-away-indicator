@@ -69,6 +69,8 @@ class IndicatorWarningReplayTest {
                             " text=${intent.getBooleanExtra("textVerified", false)}" +
                             " bounds=${intent.getBooleanExtra("multiplierBounds", false)}" +
                             " round=${intent.getBooleanExtra("roundActive", false)}" +
+                            " roundStartGeneration=${intent.getLongExtra("roundStartGeneration", 0L)}" +
+                            " roundEndGeneration=${intent.getLongExtra("roundEndGeneration", 0L)}" +
                             " elapsed=${intent.getLongExtra("roundElapsedMs", 0L)}" +
                             " frames=${intent.getIntExtra("indicatorFrames", 0)}" +
                             " progress=${"%.3f".format(java.util.Locale.US, intent.getDoubleExtra("flightProgress", 0.0))}" +
@@ -253,6 +255,11 @@ class IndicatorWarningReplayTest {
 
             for ((index, roundCase) in cases.withIndex()) {
                 val redCountBefore = events.count { it.status == "PRE-FLY-AWAY DETECTED" }
+                val diagnosticsBeforeRound = diagnostics.size
+                val previousStartGeneration = diagnostics.lastOrNull()
+                    ?.let { debugLongField(it, "roundStartGeneration") } ?: 0L
+                val previousEndGeneration = diagnostics.lastOrNull()
+                    ?.let { debugLongField(it, "roundEndGeneration") } ?: 0L
                 assertTrue(
                     "${roundCase.name}: replay Activity left the foreground before round start.",
                     waitUntil(3_000L) {
@@ -272,18 +279,22 @@ class IndicatorWarningReplayTest {
                     acknowledgedStart
                 )
                 val roundStartAt = acknowledgedStart!!
-                val diagnosticsBeforeRound = diagnostics.size
+                // Do not mistake the previous round's still-active lock for acceptance
+                // of this round. Require a fresh generation increment after this command.
                 val acceptedLiveRound = waitUntil(3_000L) {
-                    diagnostics.drop(diagnosticsBeforeRound).any { it.contains("round=true") }
+                    diagnostics.drop(diagnosticsBeforeRound).any { frame ->
+                        val generation = debugLongField(frame, "roundStartGeneration")
+                        generation == previousStartGeneration + 1L && frame.contains("round=true")
+                    }
                 }
                 if (!acceptedLiveRound) {
                     val screenshotSaved = captureFailureScreenshot(device)
                     val replayState = replayLifecycleEvents.takeLast(6).joinToString(" | ")
                     throw AssertionError(
-                        "${roundCase.name}: the real monitor did not accept the replayed live round. " +
+                        "${roundCase.name}: the real monitor did not start a new live round. " +
+                            "previousGeneration=$previousStartGeneration; " +
+                            "roundFrames=${diagnostics.drop(diagnosticsBeforeRound).takeLast(35).joinToString(" | ")}; " +
                             "screenshotSaved=$screenshotSaved; replayState=$replayState; " +
-                            "debugFramesSinceStart=${diagnostics.drop(diagnosticsBeforeRound).size}; " +
-                            "last=${diagnostics.takeLast(24).joinToString(" | ")}; " +
                             "statuses=${events.takeLast(8).joinToString { it.status }}"
                     )
                 }
@@ -362,6 +373,18 @@ class IndicatorWarningReplayTest {
                 val endPlusHoldAt = roundStartAt + roundCase.durationMs + 2_300L
                 val remainingAfterEnd = (endPlusHoldAt - SystemClock.elapsedRealtime()).coerceAtLeast(0L)
                 SystemClock.sleep(remainingAfterEnd)
+                val roundEndConfirmed = waitUntil(5_000L) {
+                    diagnostics.drop(diagnosticsBeforeRound).any { frame ->
+                        val endGeneration = debugLongField(frame, "roundEndGeneration")
+                        endGeneration == previousEndGeneration + 1L && frame.contains("round=false")
+                    }
+                }
+                assertTrue(
+                    "${roundCase.name}: the monitor did not confirm exactly one round end and release its alert lock. " +
+                        "previousEndGeneration=$previousEndGeneration; " +
+                        "roundFrames=${diagnostics.drop(diagnosticsBeforeRound).takeLast(35).joinToString(" | ")}",
+                    roundEndConfirmed
+                )
                 val redCountAfter = events.count { it.status == "PRE-FLY-AWAY DETECTED" }
                 assertTrue(
                     "${roundCase.name}: more than one RED warning was issued for a single round.",
@@ -419,6 +442,14 @@ class IndicatorWarningReplayTest {
     ) {
         val command = Intent(action).setPackage(context.packageName).apply(configure)
         context.sendBroadcast(command)
+    }
+
+    private fun debugLongField(frame: String, field: String): Long? {
+        return Regex("(?:^|\\\\s)" + Regex.escape(field) + "=(\\\\d+)")
+            .find(frame)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.toLongOrNull()
     }
 
     private fun awaitRoundStart(

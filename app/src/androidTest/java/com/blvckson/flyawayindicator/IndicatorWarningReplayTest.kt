@@ -43,7 +43,6 @@ class IndicatorWarningReplayTest {
     fun realScreenMonitorWarnsOnShortMediumLongAndExtremelyLongReplayRounds() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val targetContext = instrumentation.targetContext
-        val testContext = instrumentation.context
         val device = UiDevice.getInstance(instrumentation)
         val events = CopyOnWriteArrayList<StatusEvent>()
         val receiver = object : BroadcastReceiver() {
@@ -55,6 +54,7 @@ class IndicatorWarningReplayTest {
 
         targetContext.registerReceiver(receiver, IntentFilter(ScreenMonitorService.ACTION_STATUS))
         var mainScenario: ActivityScenario<MainActivity>? = null
+        var replayActivity: AviatorReplayActivity? = null
 
         try {
             assertTrue(
@@ -91,15 +91,11 @@ class IndicatorWarningReplayTest {
 
             // This activity belongs to the instrumentation APK. The target service
             // still captures it from the physical emulator display through MediaProjection.
-            val replayIntent = Intent(testContext, AviatorReplayActivity::class.java)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-            testContext.startActivity(replayIntent)
-            device.waitForIdle()
-            SystemClock.sleep(500L)
-            testContext.sendBroadcast(
-                Intent(AviatorReplayActivity.ACTION_SHOW_CALIBRATION)
-                    .setPackage(testContext.packageName)
-            )
+            val replayIntent = Intent(targetContext, AviatorReplayActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+            replayActivity =
+                instrumentation.startActivitySync(replayIntent) as AviatorReplayActivity
+            replayActivity!!.showCalibrationScene()
             val firstGreen = awaitStatus(
                 events = events,
                 status = "ROUND VISUAL MONITORING — GREEN",
@@ -129,12 +125,7 @@ class IndicatorWarningReplayTest {
             for ((index, roundCase) in cases.withIndex()) {
                 val redCountBefore = events.count { it.status == "PRE-FLY-AWAY DETECTED" }
                 val roundStartAt = SystemClock.elapsedRealtime()
-                testContext.sendBroadcast(
-                    Intent(AviatorReplayActivity.ACTION_BEGIN_ROUND)
-                        .setPackage(testContext.packageName)
-                        .putExtra(AviatorReplayActivity.EXTRA_DURATION_MS, roundCase.durationMs)
-                        .putExtra(AviatorReplayActivity.EXTRA_SIGNAL_AT_MS, roundCase.signalAtMs)
-                )
+                replayActivity!!.beginReplayRound(roundCase.durationMs, roundCase.signalAtMs)
 
                 val redEvent = awaitStatus(
                     events = events,
@@ -218,10 +209,7 @@ class IndicatorWarningReplayTest {
 
             // Leave the Aviator screen and verify that BLACK is reserved for a
             // genuinely absent screen, not the gap between its rounds.
-            testContext.sendBroadcast(
-                Intent(AviatorReplayActivity.ACTION_SHOW_NEUTRAL)
-                    .setPackage(testContext.packageName)
-            )
+            replayActivity!!.showNeutralScene()
             val blackAfterLeavingScreen = awaitStatus(
                 events = events,
                 status = "WAITING FOR AVIATOR",
@@ -234,10 +222,7 @@ class IndicatorWarningReplayTest {
             )
         } finally {
             try {
-                testContext.sendBroadcast(
-                    Intent(AviatorReplayActivity.ACTION_FINISH)
-                        .setPackage(testContext.packageName)
-                )
+                replayActivity?.runOnUiThread { replayActivity?.finish() }
             } catch (_: Throwable) {}
             try { mainScenario?.close() } catch (_: Throwable) {}
             try { targetContext.stopService(Intent(targetContext, ScreenMonitorService::class.java)) } catch (_: Throwable) {}

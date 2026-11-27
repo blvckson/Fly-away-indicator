@@ -221,7 +221,7 @@ private class AviatorReplayView(context: android.content.Context) : View(context
         // Stable scene details make the synthetic screen visually structured;
         // the animated brightness/pulse changes are confined to the real flight area.
         stroke.color = Color.argb(125, 210, 225, 240)
-        stroke.strokeWidth = 2f
+        stroke.strokeWidth = 4f
         for (i in 1..4) {
             val y = h * (0.18f + i * 0.065f)
             canvas.drawLine(w * 0.20f, y, w * 0.80f, y, stroke)

@@ -51,8 +51,13 @@ class IndicatorWarningReplayTest {
                 if (intent?.action == ScreenMonitorService.ACTION_DEBUG_FRAME) {
                     diagnostics.add(
                         "phase=${intent.getStringExtra("phase")}" +
+                            " screenPresent=${intent.getBooleanExtra("screenPresent", false)}" +
                             " live=${intent.getBooleanExtra("visualLive", false)}" +
                             " detector=${intent.getBooleanExtra("detectorLive", false)}" +
+                            " ocr=${intent.getStringExtra("ocrStatus")}" +
+                            " textAt=${intent.getLongExtra("textObservedAt", 0L)}" +
+                            " multPresent=${intent.getBooleanExtra("multiplierPresent", false)}" +
+                            " aviator=${intent.getBooleanExtra("aviatorLabelPresent", false)}" +
                             " plane=${intent.getBooleanExtra("planePresent", false)}" +
                             " pScore=${"%.2f".format(java.util.Locale.US, intent.getDoubleExtra("planeScore", 0.0))}" +
                             " scene=${"%.2f".format(java.util.Locale.US, intent.getDoubleExtra("sceneScore", 0.0))}" +
@@ -163,7 +168,7 @@ class IndicatorWarningReplayTest {
                 )
                 assertNotNull(
                     "${roundCase.name}: no RED warning was produced by the live screen-processing pipeline. " +
-                        "Latest diagnostics: ${diagnostics.takeLast(10).joinToString(" | ")}",
+                        "Latest diagnostics (count=${diagnostics.size}): first=${diagnostics.take(6).joinToString(" | ")}; last=${diagnostics.takeLast(12).joinToString(" | ")}",
                     redEvent
                 )
 

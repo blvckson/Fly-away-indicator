@@ -572,6 +572,8 @@ class ScreenMonitorService : Service() {
                     .putExtra("phase",indicatorPhaseMachine.phase.name)
                     .putExtra("screenPresent",aviatorScreenPresent)
                     .putExtra("textVerified",textEvidence.verified)
+                    .putExtra("ocrStatus",textVerifier.status())
+                    .putExtra("textObservedAt",textEvidence.observedAtMillis)
                     .putExtra("multiplierPresent",textEvidence.multiplierPresent)
                     .putExtra("aviatorLabelPresent",textEvidence.aviatorLabelPresent)
                     .putExtra("multiplierBounds",textEvidence.multiplierBounds!=null)

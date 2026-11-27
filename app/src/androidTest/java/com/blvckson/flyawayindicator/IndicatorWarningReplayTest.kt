@@ -389,6 +389,41 @@ class IndicatorWarningReplayTest {
                         "roundFrames=${diagnostics.drop(diagnosticsBeforeRound).takeLast(35).joinToString(" | ")}",
                     roundEndConfirmed
                 )
+                if (index < cases.lastIndex) {
+                    // Model the real between-round betting screen: the Aviator screen
+                    // stays present and GREEN, but there is no live aircraft. Let the
+                    // production OCR and appearance tracker collect two fresh stable
+                    // samples before the next round starts. This prevents the next
+                    // round inheriting a just-ended flight's multiplier appearance.
+                    val calibrationAt = SystemClock.elapsedRealtime()
+                    sendReplayCommand(targetContext, AviatorReplayActivity.ACTION_SHOW_CALIBRATION)
+                    val interRoundReady = waitUntil(12_000L) {
+                        diagnostics.any { frame ->
+                            frame.contains("phase=GREEN") &&
+                                frame.contains("screenPresent=true") &&
+                                frame.contains("round=false") &&
+                                frame.contains("text=true") &&
+                                frame.contains("controls=true") &&
+                                frame.contains("bet=true") &&
+                                frame.contains("cashOut=false") &&
+                                (debugLongField(frame, "multSamples") ?: 0L) >= 2L
+                        }
+                    }
+                    assertTrue(
+                        "${roundCase.name}: GREEN did not remain ready with fresh OCR between rounds. " +
+                            "calibrationAt=$calibrationAt; " +
+                            "recentFrames=${diagnostics.takeLast(24).joinToString(" | ")}",
+                        interRoundReady
+                    )
+                    assertTrue(
+                        "${roundCase.name}: the indicator returned to BLACK during the inter-round betting screen.",
+                        events.none {
+                            it.status == "WAITING FOR GAME SCREEN" &&
+                                it.atMs >= calibrationAt
+                        }
+                    )
+                }
+
                 val redCountAfter = events.count { it.status == "PRE-FLY-AWAY DETECTED" }
                 assertTrue(
                     "${roundCase.name}: more than one RED warning was issued for a single round.",

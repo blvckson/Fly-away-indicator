@@ -30,15 +30,27 @@ class LiveScreenDetector {
     private var identityLatched = false
     private val aircraftBehaviourTracker = AircraftBehaviourTracker()
 
-    /** Clear aircraft confirmation history after a completed round. */
-    fun resetTracking() {
+    /**
+     * Clear per-round aircraft tracking after a completed round.
+     *
+     * Aviator screen identity is session-scoped, not round-scoped: while the
+     * verified game screen remains present, a new round must not need to
+     * re-prove the same screen identity from scratch. Aircraft position,
+     * movement and live-frame confirmation are still reset for every round.
+     */
+    fun resetRoundTracking() {
         lastPlaneX = Float.NaN
         lastPlaneY = Float.NaN
         stableHits = 0
         missHits = 0
         confidence = 0.0
-        identityLatched = false
         aircraftBehaviourTracker.reset()
+    }
+
+    /** Clear all tracking only after the verified Aviator screen session ends. */
+    fun resetTracking() {
+        resetRoundTracking()
+        identityLatched = false
     }
 
     internal fun inspect(

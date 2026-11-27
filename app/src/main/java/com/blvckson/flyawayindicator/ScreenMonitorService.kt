@@ -375,7 +375,9 @@ class ScreenMonitorService : Service() {
             lastMove=0.0
             lastPlaneX=Float.NaN
             lastPlaneY=Float.NaN
-            detector.resetTracking()
+            // Keep the positively identified Aviator screen session latched.
+            // Only aircraft motion/live-frame history is per-round.
+            detector.resetRoundTracking()
             multiplierBehaviourTracker.reset()
         }
         val roundElapsedMs=if(indicatorRoundStartedAtMs>0L)

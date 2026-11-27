@@ -622,6 +622,8 @@ class ScreenMonitorService : Service() {
                     .putExtra("aircraftBehaviour",state.aircraftBehaviourScore)
                     .putExtra("movement",state.movementScore)
                     .putExtra("roundActive",indicatorPhaseMachine.isRoundActive)
+                    .putExtra("roundStartGeneration",indicatorPhaseMachine.roundStartGeneration)
+                    .putExtra("roundEndGeneration",indicatorPhaseMachine.roundEndGeneration)
                     .putExtra("roundElapsedMs",roundElapsedMs)
                     .putExtra("indicatorFrames",indicatorFrames)
                     .putExtra("baselineSamples",indicatorBaseline.size)

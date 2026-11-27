@@ -67,6 +67,10 @@ class IndicatorWarningReplayTest {
                             " multSamples=${intent.getIntExtra("multiplierSamples", 0)}" +
                             " airBehaviour=${"%.2f".format(java.util.Locale.US, intent.getDoubleExtra("aircraftBehaviour", 0.0))}" +
                             " text=${intent.getBooleanExtra("textVerified", false)}" +
+                            " controls=${intent.getBooleanExtra("gameControlsPresent", false)}" +
+                            " bet=${intent.getBooleanExtra("betButtonPresent", false)}" +
+                            " cashOut=${intent.getBooleanExtra("cashOutPresent", false)}" +
+                            " end=${intent.getBooleanExtra("endConfirmed", false)}" +
                             " bounds=${intent.getBooleanExtra("multiplierBounds", false)}" +
                             " round=${intent.getBooleanExtra("roundActive", false)}" +
                             " roundStartGeneration=${intent.getLongExtra("roundStartGeneration", 0L)}" +

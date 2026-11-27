@@ -5,6 +5,7 @@ import android.app.AlertDialog
 import android.content.*
 import android.media.projection.MediaProjectionManager
 import android.net.Uri
+import android.provider.Settings
 import android.os.Bundle
 import android.view.MenuItem
 import android.view.View

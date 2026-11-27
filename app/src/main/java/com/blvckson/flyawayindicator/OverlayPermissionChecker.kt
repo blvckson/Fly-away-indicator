@@ -3,7 +3,6 @@ package com.blvckson.flyawayindicator
 import android.app.AppOpsManager
 import android.content.Context
 import android.os.Build
-import android.os.Process
 import android.provider.Settings
 
 /**
@@ -22,7 +21,7 @@ object OverlayPermissionChecker {
         return try {
             appOps.checkOpNoThrow(
                 AppOpsManager.OPSTR_SYSTEM_ALERT_WINDOW,
-                Process.myUid(),
+                context.applicationInfo.uid,
                 context.packageName
             )
         } catch (_: Throwable) {

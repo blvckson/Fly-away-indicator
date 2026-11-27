@@ -28,6 +28,8 @@ class ScreenMonitorService : Service() {
         const val ACTION_STATUS="com.blvckson.flyawayindicator.STATUS"
         const val ACTION_DEBUG_FRAME="com.blvckson.flyawayindicator.DEBUG_FRAME"
         const val ACTION_DEBUG_HIDE_PREVIEW="com.blvckson.flyawayindicator.DEBUG_HIDE_PREVIEW"
+        const val ACTION_DEBUG_HIDE_OVERLAY="com.blvckson.flyawayindicator.DEBUG_HIDE_OVERLAY"
+        const val ACTION_DEBUG_OVERLAY_HIDDEN="com.blvckson.flyawayindicator.DEBUG_OVERLAY_HIDDEN"
         const val EXTRA_STATUS="status"
         const val EXTRA_STATEMENT="statement"
         const val EXTRA_ROUNDS="rounds"
@@ -119,9 +121,24 @@ class ScreenMonitorService : Service() {
     private var lastDebugFrameBroadcastAtMs=0L
     private val debugCommandReceiver=object : android.content.BroadcastReceiver(){
         override fun onReceive(context:android.content.Context?,intent:Intent?){
-            if(intent?.action==ACTION_DEBUG_HIDE_PREVIEW &&
-                (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE)!=0){
-                main.post { preview?.visibility=android.view.View.GONE }
+            if ((applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE)==0) return
+            when (intent?.action) {
+                ACTION_DEBUG_HIDE_PREVIEW -> main.post { preview?.visibility=android.view.View.GONE }
+                ACTION_DEBUG_HIDE_OVERLAY -> main.post {
+                    // The floating panel can cover the Aviator title and multiplier
+                    // in a captured test replay. Remove only the debug test overlay;
+                    // keep MediaProjection, ImageReader, OCR and detection running.
+                    val panel = overlayContainer
+                    if (panel != null) {
+                        try { wm?.removeView(panel) } catch (_: Throwable) {}
+                    }
+                    overlayContainer = null
+                    overlay = null
+                    preview = null
+                    sendBroadcast(
+                        Intent(ACTION_DEBUG_OVERLAY_HIDDEN).setPackage(packageName)
+                    )
+                }
             }
         }
     }
@@ -136,7 +153,10 @@ class ScreenMonitorService : Service() {
         thread.start()
         handler=Handler(thread.looper)
         main=Handler(Looper.getMainLooper())
-        registerReceiver(debugCommandReceiver,android.content.IntentFilter(ACTION_DEBUG_HIDE_PREVIEW))
+        val debugFilter = android.content.IntentFilter(ACTION_DEBUG_HIDE_PREVIEW).apply {
+            addAction(ACTION_DEBUG_HIDE_OVERLAY)
+        }
+        registerReceiver(debugCommandReceiver,debugFilter)
         overlayTextSize=overlayPrefs.getFloat("text_size",13f).coerceIn(10f,24f)
         overlayExpanded=overlayPrefs.getBoolean("expanded",true)
         showOverlay()

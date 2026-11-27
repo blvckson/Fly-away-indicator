@@ -47,6 +47,7 @@ class IndicatorWarningReplayTest {
         val events = CopyOnWriteArrayList<StatusEvent>()
         val diagnostics = CopyOnWriteArrayList<String>()
         val replayLifecycleEvents = CopyOnWriteArrayList<String>()
+        val overlayHiddenAt = CopyOnWriteArrayList<Long>()
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
                 if (intent?.action == ScreenMonitorService.ACTION_DEBUG_FRAME) {
@@ -84,6 +85,10 @@ class IndicatorWarningReplayTest {
                     )
                     return
                 }
+                if (intent?.action == ScreenMonitorService.ACTION_DEBUG_OVERLAY_HIDDEN) {
+                    overlayHiddenAt.add(SystemClock.elapsedRealtime())
+                    return
+                }
                 val status = intent?.getStringExtra(ScreenMonitorService.EXTRA_STATUS) ?: return
                 events.add(StatusEvent(status, SystemClock.elapsedRealtime()))
             }
@@ -92,6 +97,7 @@ class IndicatorWarningReplayTest {
         val statusFilter = IntentFilter(ScreenMonitorService.ACTION_STATUS).apply {
             addAction(ScreenMonitorService.ACTION_DEBUG_FRAME)
             addAction(AviatorReplayActivity.ACTION_LIFECYCLE)
+            addAction(ScreenMonitorService.ACTION_DEBUG_OVERLAY_HIDDEN)
         }
         targetContext.registerReceiver(receiver, statusFilter)
         var mainScenario: ActivityScenario<MainActivity>? = null
@@ -128,17 +134,19 @@ class IndicatorWarningReplayTest {
                     }
                 }
             )
-            // Keep MainActivity alive as the task's foreground owner and launch
-            // the debug replay from that real app Activity. Closing MainActivity
-            // before launching the replay was returning Android to the launcher.
-            // The monitor's debug preview is a floating window above the captured
-            // screen. Hide that preview in this synthetic replay so it cannot cover
-            // the moving aircraft and invalidate the screen-detection measurement.
+            // Keep the real monitor running, but remove its floating debug overlay
+            // from this synthetic replay. The panel itself covers the Aviator title
+            // and multiplier in the captured image, which can prevent OCR identity
+            // confirmation. This command exists only in debuggable builds.
             targetContext.sendBroadcast(
-                Intent(ScreenMonitorService.ACTION_DEBUG_HIDE_PREVIEW)
+                Intent(ScreenMonitorService.ACTION_DEBUG_HIDE_OVERLAY)
                     .setPackage(targetContext.packageName)
             )
-            SystemClock.sleep(500L)
+            assertTrue(
+                "The debug overlay panel was not removed before replay capture.",
+                waitUntil(3_000L) { overlayHiddenAt.isNotEmpty() }
+            )
+            SystemClock.sleep(250L)
 
             // Use a dedicated ActivityScenario for the replay screen. The previous
             // approach launched it inside MainActivity's scenario callback; AndroidX

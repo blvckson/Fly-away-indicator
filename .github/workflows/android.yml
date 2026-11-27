@@ -74,7 +74,12 @@ jobs:
             adb shell appops get com.blvckson.flyawayindicator SYSTEM_ALERT_WINDOW
             # Reuse the installed APKs so the appops grant is not disturbed by a
             # second install step while connected instrumentation tests start.
+            set +e
             gradle connectedDebugAndroidTest --no-daemon -x installDebug -x installDebugAndroidTest
+            test_result=$?
+            mkdir -p app/build/reports/androidTests/connected
+            adb pull /sdcard/aviator-replay-failure.png app/build/reports/androidTests/connected/aviator-replay-failure.png || true
+            exit $test_result
       - name: Upload emulator test reports
         if: always()
         uses: actions/upload-artifact@v4

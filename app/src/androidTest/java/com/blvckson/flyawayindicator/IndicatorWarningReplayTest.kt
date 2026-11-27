@@ -18,6 +18,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.io.File
 import java.util.concurrent.CopyOnWriteArrayList
 
 /**
@@ -175,6 +176,15 @@ class IndicatorWarningReplayTest {
                     afterMs = roundStartAt,
                     timeoutMs = roundCase.durationMs + 4_000L
                 )
+                if (redEvent == null) {
+                    // Preserve the actual emulator display so a failed replay can be
+                    // visually diagnosed instead of guessing from detector counters.
+                    device.takeScreenshot(File("/sdcard/aviator-replay-failure.png"))
+                    System.out.println(
+                        "AVIATOR_REPLAY_DIAGNOSTICS count=${diagnostics.size} " +
+                            diagnostics.joinToString(" || ")
+                    )
+                }
                 assertNotNull(
                     "${roundCase.name}: no RED warning was produced by the live screen-processing pipeline. " +
                         "Latest diagnostics (count=${diagnostics.size}): first=${diagnostics.take(6).joinToString(" | ")}; last=${diagnostics.takeLast(12).joinToString(" | ")}",

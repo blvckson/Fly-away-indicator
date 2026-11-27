@@ -6,7 +6,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.SystemClock
-import androidx.lifecycle.Lifecycle
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -48,6 +47,7 @@ class IndicatorWarningReplayTest {
         val diagnostics = CopyOnWriteArrayList<String>()
         val replayLifecycleEvents = CopyOnWriteArrayList<String>()
         val overlayHiddenAt = CopyOnWriteArrayList<Long>()
+        val roundStartAcks = CopyOnWriteArrayList<Long>()
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
                 if (intent?.action == ScreenMonitorService.ACTION_DEBUG_FRAME) {
@@ -85,6 +85,12 @@ class IndicatorWarningReplayTest {
                     )
                     return
                 }
+                if (intent?.action == AviatorReplayActivity.ACTION_ROUND_STARTED) {
+                    roundStartAcks.add(
+                        intent.getLongExtra(AviatorReplayActivity.EXTRA_ROUND_STARTED_AT_MS, 0L)
+                    )
+                    return
+                }
                 if (intent?.action == ScreenMonitorService.ACTION_DEBUG_OVERLAY_HIDDEN) {
                     overlayHiddenAt.add(SystemClock.elapsedRealtime())
                     return
@@ -97,11 +103,11 @@ class IndicatorWarningReplayTest {
         val statusFilter = IntentFilter(ScreenMonitorService.ACTION_STATUS).apply {
             addAction(ScreenMonitorService.ACTION_DEBUG_FRAME)
             addAction(AviatorReplayActivity.ACTION_LIFECYCLE)
+            addAction(AviatorReplayActivity.ACTION_ROUND_STARTED)
             addAction(ScreenMonitorService.ACTION_DEBUG_OVERLAY_HIDDEN)
         }
         targetContext.registerReceiver(receiver, statusFilter)
         var mainScenario: ActivityScenario<MainActivity>? = null
-        var replayScenario: ActivityScenario<AviatorReplayActivity>? = null
 
         try {
             assertTrue(
@@ -148,14 +154,16 @@ class IndicatorWarningReplayTest {
             )
             SystemClock.sleep(250L)
 
-            // Use a dedicated ActivityScenario for the replay screen. The previous
-            // approach launched it inside MainActivity's scenario callback; AndroidX
-            // could then restore the tracked MainActivity, leaving the emulator on the
-            // launcher while the monitor continued capturing an empty screen.
-            replayScenario = ActivityScenario.launch<AviatorReplayActivity>(
-                Intent(targetContext, AviatorReplayActivity::class.java)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-            )
+            // Launch the debug replay from the real app Activity. ActivityScenario
+            // must not launch this target Activity from the instrumentation context on
+            // Android 8.1: it rewrites the component to the .test package and fails
+            // because the Activity belongs to the application process.
+            mainScenario!!.onActivity { activity ->
+                activity.startActivity(
+                    Intent(activity, AviatorReplayActivity::class.java)
+                        .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                )
+            }
             // Some Android 8 emulator builds show a one-time immersive-mode
             // confirmation above the Activity. Dismiss it if the system retained
             // that prompt from an earlier replay build.
@@ -171,8 +179,7 @@ class IndicatorWarningReplayTest {
                 }
             )
             val calibrationRequestedAt = SystemClock.elapsedRealtime()
-            replayScenario!!.moveToState(Lifecycle.State.RESUMED)
-            replayScenario!!.onActivity { it.showCalibrationForTest() }
+            sendReplayCommand(targetContext, AviatorReplayActivity.ACTION_SHOW_CALIBRATION)
             val firstGreen = awaitStatus(
                 events = events,
                 status = "ROUND VISUAL MONITORING — GREEN",
@@ -216,7 +223,6 @@ class IndicatorWarningReplayTest {
 
             for ((index, roundCase) in cases.withIndex()) {
                 val redCountBefore = events.count { it.status == "PRE-FLY-AWAY DETECTED" }
-                replayScenario!!.moveToState(Lifecycle.State.RESUMED)
                 assertTrue(
                     "${roundCase.name}: replay Activity left the foreground before round start.",
                     waitUntil(3_000L) {
@@ -225,23 +231,24 @@ class IndicatorWarningReplayTest {
                         ).contains("AviatorReplayActivity")
                     }
                 )
-                var roundStartAt = 0L
-                replayScenario!!.onActivity {
-                    roundStartAt = it.beginRoundForTest(roundCase.durationMs, roundCase.signalAtMs)
+                val acknowledgementIndex = roundStartAcks.size
+                sendReplayCommand(targetContext, AviatorReplayActivity.ACTION_BEGIN_ROUND) {
+                    putExtra(AviatorReplayActivity.EXTRA_DURATION_MS, roundCase.durationMs)
+                    putExtra(AviatorReplayActivity.EXTRA_SIGNAL_AT_MS, roundCase.signalAtMs)
                 }
+                val acknowledgedStart = awaitRoundStart(roundStartAcks, acknowledgementIndex, 3_000L)
+                assertNotNull(
+                    "${roundCase.name}: replay Activity did not acknowledge the round start.",
+                    acknowledgedStart
+                )
+                val roundStartAt = acknowledgedStart!!
                 val diagnosticsBeforeRound = diagnostics.size
                 val acceptedLiveRound = waitUntil(3_000L) {
                     diagnostics.drop(diagnosticsBeforeRound).any { it.contains("round=true") }
                 }
                 if (!acceptedLiveRound) {
                     val screenshotSaved = captureFailureScreenshot(device)
-                    val replayState = try {
-                        var state = "replay Activity unavailable"
-                        replayScenario?.onActivity { state = it.debugStateForTest() }
-                        state
-                    } catch (failure: Throwable) {
-                        "replay state unavailable: ${failure.javaClass.simpleName}"
-                    }
+                    val replayState = replayLifecycleEvents.takeLast(6).joinToString(" | ")
                     throw AssertionError(
                         "${roundCase.name}: the real monitor did not accept the replayed live round. " +
                             "screenshotSaved=$screenshotSaved; replayState=$replayState; " +
@@ -258,13 +265,7 @@ class IndicatorWarningReplayTest {
                     timeoutMs = roundCase.durationMs + 4_000L
                 )
                 val replayStateOnFailure = if (redEvent == null) {
-                    try {
-                        var state = "replay Activity unavailable"
-                        replayScenario?.onActivity { state = it.debugStateForTest() }
-                        state
-                    } catch (failure: Throwable) {
-                        "replay state unavailable: ${failure.javaClass.simpleName}"
-                    }
+                    replayLifecycleEvents.takeLast(6).joinToString(" | ")
                 } else ""
                 val foregroundOnFailure = if (redEvent == null) {
                     try {
@@ -360,8 +361,7 @@ class IndicatorWarningReplayTest {
             // Leave the Aviator screen and verify that BLACK is reserved for a
             // genuinely absent screen, not the gap between its rounds.
             val leavingScreenAt = SystemClock.elapsedRealtime()
-            replayScenario!!.moveToState(Lifecycle.State.RESUMED)
-            replayScenario!!.onActivity { it.showNeutralForTest() }
+            sendReplayCommand(targetContext, AviatorReplayActivity.ACTION_SHOW_NEUTRAL)
             val blackAfterLeavingScreen = awaitStatus(
                 events = events,
                 status = "WAITING FOR GAME SCREEN",
@@ -373,11 +373,32 @@ class IndicatorWarningReplayTest {
                 blackAfterLeavingScreen
             )
         } finally {
-            try { replayScenario?.close() } catch (_: Throwable) {}
             try { mainScenario?.close() } catch (_: Throwable) {}
             try { targetContext.stopService(Intent(targetContext, ScreenMonitorService::class.java)) } catch (_: Throwable) {}
             try { targetContext.unregisterReceiver(receiver) } catch (_: Throwable) {}
         }
+    }
+
+    private fun sendReplayCommand(
+        context: Context,
+        action: String,
+        configure: Intent.() -> Unit = {}
+    ) {
+        val command = Intent(action).setPackage(context.packageName).apply(configure)
+        context.sendBroadcast(command)
+    }
+
+    private fun awaitRoundStart(
+        events: List<Long>,
+        previousCount: Int,
+        timeoutMs: Long
+    ): Long? {
+        var acknowledgedAt: Long? = null
+        val acknowledged = waitUntil(timeoutMs) {
+            acknowledgedAt = events.getOrNull(previousCount)
+            acknowledgedAt != null
+        }
+        return if (acknowledged) acknowledgedAt else null
     }
 
     private fun awaitStatus(

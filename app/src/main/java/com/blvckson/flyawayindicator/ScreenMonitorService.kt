@@ -550,15 +550,8 @@ class ScreenMonitorService : Service() {
                 "Indicator is black. Waiting for verified live-round evidence.")
             IndicatorPhase.GREEN -> publish("ROUND VISUAL MONITORING — GREEN",false,
                 "Aviator live round confirmed. Tracking visual behaviour for the pre-fly-away change.")
-            IndicatorPhase.RED -> {
-                if(indicatorPhaseMachine.lastAlertWasConsistencyFallback){
-                    publish("ROUND WARNING ISSUED",true,
-                        "One-time consistency warning issued for this positively identified live round. This is not an exact pre-fly-away prediction.")
-                }else{
-                    publish("PRE-FLY-AWAY DETECTED",true,
-                        "Pre-fly-away visual/behavioural transition detected. Red indicator ON. ${latchedRedSignalReport.ifBlank { lastIndicatorSignalReport }}")
-                }
-            }
+            IndicatorPhase.RED -> publish("PRE-FLY-AWAY DETECTED",true,
+                "Pre-fly-away visual/behavioural transition detected. Red indicator ON. ${latchedRedSignalReport.ifBlank { lastIndicatorSignalReport }}")
         }
 
         lastFrame?.recycle()

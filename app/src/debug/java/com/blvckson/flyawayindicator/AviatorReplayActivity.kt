@@ -31,8 +31,10 @@ class AviatorReplayActivity : Activity() {
         const val ACTION_SHOW_NEUTRAL = "com.blvckson.flyawayindicator.TEST_REPLAY_NEUTRAL"
         const val ACTION_FINISH = "com.blvckson.flyawayindicator.TEST_REPLAY_FINISH"
         const val ACTION_LIFECYCLE = "com.blvckson.flyawayindicator.TEST_REPLAY_LIFECYCLE"
+        const val ACTION_ROUND_STARTED = "com.blvckson.flyawayindicator.TEST_REPLAY_ROUND_STARTED"
         const val EXTRA_DURATION_MS = "duration_ms"
         const val EXTRA_SIGNAL_AT_MS = "signal_at_ms"
+        const val EXTRA_ROUND_STARTED_AT_MS = "round_started_at_ms"
     }
 
     private lateinit var replayView: AviatorReplayView
@@ -40,10 +42,17 @@ class AviatorReplayActivity : Activity() {
         override fun onReceive(context: android.content.Context?, intent: Intent?) {
             when (intent?.action) {
                 ACTION_SHOW_CALIBRATION -> replayView.showCalibrationScene()
-                ACTION_BEGIN_ROUND -> replayView.beginReplayRound(
-                    intent.getLongExtra(EXTRA_DURATION_MS, 0L),
-                    intent.getLongExtra(EXTRA_SIGNAL_AT_MS, Long.MAX_VALUE)
-                )
+                ACTION_BEGIN_ROUND -> {
+                    val startedAt = replayView.beginReplayRound(
+                        intent.getLongExtra(EXTRA_DURATION_MS, 0L),
+                        intent.getLongExtra(EXTRA_SIGNAL_AT_MS, Long.MAX_VALUE)
+                    )
+                    sendBroadcast(
+                        Intent(ACTION_ROUND_STARTED)
+                            .setPackage(packageName)
+                            .putExtra(EXTRA_ROUND_STARTED_AT_MS, startedAt)
+                    )
+                }
                 ACTION_SHOW_NEUTRAL -> replayView.showNeutralScene()
                 ACTION_FINISH -> finish()
             }
@@ -155,13 +164,14 @@ private class AviatorReplayView(context: android.content.Context) : View(context
         postInvalidate()
     }
 
-    fun beginReplayRound(durationMs: Long, signalAtMs: Long) {
+    fun beginReplayRound(durationMs: Long, signalAtMs: Long): Long {
         require(durationMs > signalAtMs && signalAtMs >= 0L)
         roundDurationMs = durationMs
         this.signalAtMs = signalAtMs
         roundStartedAt = SystemClock.elapsedRealtime()
         stage = Stage.FLIGHT
         postInvalidate()
+        return roundStartedAt
     }
 
     override fun onDraw(canvas: Canvas) {

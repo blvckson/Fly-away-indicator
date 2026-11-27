@@ -564,7 +564,8 @@ class ScreenMonitorService : Service() {
             if(roundFrames >= 20 && (redMultiplierFrozen || explicitEnd || sustainedPlaneDisappearance)) finishRound()
         }
 
-        if(BuildConfig.DEBUG && phaseNowMs-lastDebugFrameBroadcastAtMs>=250L){
+        if((applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0 &&
+            phaseNowMs-lastDebugFrameBroadcastAtMs>=250L){
             lastDebugFrameBroadcastAtMs=phaseNowMs
             sendBroadcast(
                 Intent(ACTION_DEBUG_FRAME).setPackage(packageName)

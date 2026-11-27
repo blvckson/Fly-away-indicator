@@ -398,7 +398,7 @@ class IndicatorWarningReplayTest {
                     val calibrationAt = SystemClock.elapsedRealtime()
                     val calibrationDiagnosticStart = diagnostics.size
                     sendReplayCommand(targetContext, AviatorReplayActivity.ACTION_SHOW_CALIBRATION)
-                    val interRoundReady = waitUntil(12_000L) {
+                    val interRoundReady = waitUntil(18_000L) {
                         diagnostics.drop(calibrationDiagnosticStart).any { frame ->
                             frame.contains("phase=GREEN") &&
                                 frame.contains("screenPresent=true") &&
@@ -407,7 +407,7 @@ class IndicatorWarningReplayTest {
                                 frame.contains("controls=true") &&
                                 frame.contains("bet=true") &&
                                 frame.contains("cashOut=false") &&
-                                (debugLongField(frame, "multSamples") ?: 0L) >= 2L
+                                (debugLongField(frame, "multSamples") ?: 0L) >= 3L
                         }
                     }
                     assertTrue(

@@ -282,7 +282,7 @@ private class AviatorReplayView(context: android.content.Context) : View(context
             // instead of seeing low-contrast white text on a pale background.
             text.color = Color.rgb(8, 18, 32)
             text.textSize = h * 0.080f
-            canvas.drawText("FLEW AWAY", w * 0.50f, h * 0.41f, text)
+            canvas.drawText("FLEWAWAY", w * 0.50f, h * 0.41f, text)
         }
 
         // The real monitor captures the screen on its ImageReader callback. Keep

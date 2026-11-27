@@ -396,9 +396,10 @@ class IndicatorWarningReplayTest {
                     // samples before the next round starts. This prevents the next
                     // round inheriting a just-ended flight's multiplier appearance.
                     val calibrationAt = SystemClock.elapsedRealtime()
+                    val calibrationDiagnosticStart = diagnostics.size
                     sendReplayCommand(targetContext, AviatorReplayActivity.ACTION_SHOW_CALIBRATION)
                     val interRoundReady = waitUntil(12_000L) {
-                        diagnostics.any { frame ->
+                        diagnostics.drop(calibrationDiagnosticStart).any { frame ->
                             frame.contains("phase=GREEN") &&
                                 frame.contains("screenPresent=true") &&
                                 frame.contains("round=false") &&

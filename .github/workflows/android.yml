@@ -78,17 +78,8 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
           disable-animations: true
           script: |
-            # Install both APKs first; appops cannot target a package before Android
-            # has registered its UID on the emulator.
-            gradle installDebug installDebugAndroidTest --no-daemon
-            adb shell pm path com.blvckson.flyawayindicator
-            adb shell pm path com.blvckson.flyawayindicator.test
-            adb shell appops set com.blvckson.flyawayindicator SYSTEM_ALERT_WINDOW allow
-            adb shell appops get com.blvckson.flyawayindicator SYSTEM_ALERT_WINDOW
-            # Reuse the installed APKs so the appops grant is not disturbed by a
-            # second install step while connected instrumentation tests start.
-            # Retry transient Maven Central 429s; connected tests are idempotent because
-            # the run starts from a freshly installed app and the test cleans up its service.
+            # Maven Central can transiently rate-limit fresh emulator runners (HTTP 429).
+            # Retry idempotent Gradle tasks with increasing delays before failing CI.
             run_gradle_with_retry() {
               local attempt=1
               while [ "$attempt" -le 4 ]; do
@@ -102,6 +93,17 @@ jobs:
               done
               return 1
             }
+            # Install both APKs first; appops cannot target a package before Android
+            # has registered its UID on the emulator.
+            run_gradle_with_retry installDebug installDebugAndroidTest
+            adb shell pm path com.blvckson.flyawayindicator
+            adb shell pm path com.blvckson.flyawayindicator.test
+            adb shell appops set com.blvckson.flyawayindicator SYSTEM_ALERT_WINDOW allow
+            adb shell appops get com.blvckson.flyawayindicator SYSTEM_ALERT_WINDOW
+            # Reuse the installed APKs so the appops grant is not disturbed by a
+            # second install step while connected instrumentation tests start.
+            # Retry transient Maven Central 429s; connected tests are idempotent because
+            # the run starts from a freshly installed app and the test cleans up its service.
             set +e
             run_gradle_with_retry connectedDebugAndroidTest -x installDebug -x installDebugAndroidTest
             test_result=$?

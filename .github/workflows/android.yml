@@ -27,7 +27,20 @@ jobs:
         with:
           gradle-version: '8.5'
       - name: Build debug APK and run unit tests
-        run: gradle testDebugUnitTest assembleDebug --no-daemon
+        shell: bash
+        run: |
+          # Maven Central occasionally rate-limits GitHub-hosted runners (HTTP 429).
+          # Retry the complete, idempotent Gradle task with increasing delays so
+          # transient repository throttling does not produce a false build failure.
+          for attempt in 1 2 3 4; do
+            if gradle testDebugUnitTest assembleDebug --no-daemon; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 4 ]; then
+              sleep $((attempt * 20))
+            fi
+          done
+          exit 1
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
@@ -74,8 +87,23 @@ jobs:
             adb shell appops get com.blvckson.flyawayindicator SYSTEM_ALERT_WINDOW
             # Reuse the installed APKs so the appops grant is not disturbed by a
             # second install step while connected instrumentation tests start.
+            # Retry transient Maven Central 429s; connected tests are idempotent because
+            # the run starts from a freshly installed app and the test cleans up its service.
+            run_gradle_with_retry() {
+              local attempt=1
+              while [ "$attempt" -le 4 ]; do
+                if gradle "$@" --no-daemon; then
+                  return 0
+                fi
+                if [ "$attempt" -lt 4 ]; then
+                  sleep $((attempt * 20))
+                fi
+                attempt=$((attempt + 1))
+              done
+              return 1
+            }
             set +e
-            gradle connectedDebugAndroidTest --no-daemon -x installDebug -x installDebugAndroidTest
+            run_gradle_with_retry connectedDebugAndroidTest -x installDebug -x installDebugAndroidTest
             test_result=$?
             mkdir -p app/build/reports/androidTests/connected
             adb pull /sdcard/aviator-replay-failure.png app/build/reports/androidTests/connected/aviator-replay-failure.png || true

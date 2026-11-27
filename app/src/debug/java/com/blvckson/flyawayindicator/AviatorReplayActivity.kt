@@ -195,15 +195,16 @@ private class AviatorReplayView(context: android.content.Context) : View(context
         val progress = if (stage == Stage.CALIBRATION) 0f else
             (elapsed.toFloat() / roundDurationMs.coerceAtLeast(1L)).coerceIn(0f, 1f)
         val ramp = if (stage == Stage.FLIGHT && elapsed >= signalAtMs) {
-            ((elapsed - signalAtMs).toFloat() / 2_400f).coerceIn(0f, 1f)
+            ((elapsed - signalAtMs).toFloat() / 900f).coerceIn(0f, 1f)
         } else 0f
-        // A rising visual disturbance creates a gradual, measurable pre-warning
-        // signal. The continuing pulse keeps corroborating evidence present after
-        // the first alert so the per-round one-alert lock is exercised as well.
-        val pulse = if (ramp >= 1f) {
-            ((sin((elapsed / 210.0) * 2.0 * PI) + 1.0) * 0.5 * 25.0).toFloat()
+        // A controlled, clearly measurable pre-warning event starts at signalAtMs.
+        // The faster rise and repeated panel pulse provide sustained trend/central
+        // evidence, rather than requiring a late, barely-visible change to accumulate.
+        // This only strengthens the debug replay input; production scoring is untouched.
+        val pulse = if (ramp >= 0.70f) {
+            (sin((elapsed / 410.0) * 2.0 * PI) * 55.0).toFloat()
         } else 0f
-        val intensity = (150f * ramp * ramp + pulse).coerceIn(0f, 190f)
+        val intensity = (210f * ramp * ramp + pulse).coerceIn(0f, 220f)
 
         canvas.drawColor(Color.rgb(9, 14, 24))
 
@@ -247,12 +248,12 @@ private class AviatorReplayView(context: android.content.Context) : View(context
 
         val multiplierColor = Color.rgb(
             255,
-            (255f - 55f * ramp).toInt().coerceIn(0, 255),
-            (255f - 115f * ramp).toInt().coerceIn(0, 255)
+            (255f - 170f * ramp).toInt().coerceIn(0, 255),
+            (255f - 220f * ramp).toInt().coerceIn(0, 255)
         )
         text.color = multiplierColor
-        text.textSize = h * (0.075f + 0.004f * ramp)
-        canvas.drawText("1.00x", w * 0.50f, h * 0.285f, text)
+        text.textSize = h * (0.075f + 0.020f * ramp)
+        canvas.drawText("1.00x", w * 0.50f, h * (0.285f - 0.012f * ramp), text)
 
         text.color = Color.WHITE
         text.textSize = h * 0.020f
@@ -267,8 +268,8 @@ private class AviatorReplayView(context: android.content.Context) : View(context
             // Give the replay aircraft enough measured travel by each injected
             // pre-warning time to exercise the production flightProgress gate.
             // This is test-only motion; no production thresholds are relaxed.
-            val planeX = w * (0.51f + 0.35f * progress)
-            val planeY = h * (0.55f - 0.40f * progress)
+            val planeX = w * (0.51f + 0.26f * progress + 0.07f * ramp)
+            val planeY = h * (0.55f - 0.32f * progress - 0.07f * ramp)
             drawAircraft(canvas, planeX, planeY, w * 0.090f)
         } else if (ended) {
             text.color = Color.WHITE

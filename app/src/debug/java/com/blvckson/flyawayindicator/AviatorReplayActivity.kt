@@ -256,13 +256,15 @@ private class AviatorReplayView(context: android.content.Context) : View(context
         canvas.drawText("1.00x", w * 0.50f, h * (0.285f - 0.012f * ramp), text)
 
         text.color = Color.WHITE
-        text.textSize = h * 0.020f
-        canvas.drawText("BET", w * 0.31f, h * 0.79f, text)
-        canvas.drawText("AUTO", w * 0.50f, h * 0.79f, text)
+        text.textSize = h * 0.034f
+        // Keep the test-only BET/AUTO result controls fully inside the production
+        // OCR crop, rather than on the lower edge where Android 8.1 can clip them.
+        canvas.drawText("BET", w * 0.31f, h * 0.71f, text)
+        canvas.drawText("AUTO", w * 0.50f, h * 0.71f, text)
         // Once FLEW AWAY is displayed, the result screen no longer exposes CASH OUT.
         // This lets the production round-end fallback verify the returned BET/AUTO UI
         // when OCR misses the explicit FLEW AWAY text.
-        if (!ended) canvas.drawText("CASH OUT", w * 0.70f, h * 0.79f, text)
+        if (!ended) canvas.drawText("CASH OUT", w * 0.70f, h * 0.71f, text)
 
         if (!ended && stage != Stage.CALIBRATION) {
             // Keep the synthetic aircraft clear of the top-left floating overlay area.

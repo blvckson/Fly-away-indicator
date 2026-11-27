@@ -119,9 +119,9 @@ class IndicatorWarningReplayTest {
                     }
                 }
             )
-            mainScenario.close()
-            mainScenario = null
-
+            // Keep MainActivity alive as the task's foreground owner and launch
+            // the debug replay from that real app Activity. Closing MainActivity
+            // before launching the replay was returning Android to the launcher.
             // The monitor's debug preview is a floating window above the captured
             // screen. Hide that preview in this synthetic replay so it cannot cover
             // the moving aircraft and invalidate the screen-detection measurement.
@@ -131,22 +131,20 @@ class IndicatorWarningReplayTest {
             )
             SystemClock.sleep(500L)
 
-            // Launch the debug-only replay Activity through Android's shell so the
-            // emulator explicitly brings this test screen to the foreground. Its
-            // exported flag exists only in the debug manifest; release builds omit it.
-            val launchOutput = device.executeShellCommand(
-                "am start -W -n com.blvckson.flyawayindicator/.AviatorReplayActivity"
-            )
-            assertTrue(
-                "Android did not launch the synthetic replay Activity: $launchOutput",
-                launchOutput.contains("Status: ok") ||
-                    launchOutput.contains("Activity: com.blvckson.flyawayindicator")
-            )
+            mainScenario!!.onActivity { activity ->
+                activity.startActivity(
+                    Intent(activity, AviatorReplayActivity::class.java)
+                        .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                )
+            }
             assertTrue(
                 "Synthetic replay Activity did not become the resumed foreground Activity.",
                 waitUntil(10_000L) {
-                    device.executeShellCommand("dumpsys activity activities")
-                        .contains("AviatorReplayActivity")
+                    val resumed = device.executeShellCommand(
+                        "dumpsys activity activities | grep mResumedActivity"
+                    )
+                    resumed.contains("mResumedActivity") &&
+                        resumed.contains("AviatorReplayActivity")
                 }
             )
             targetContext.sendBroadcast(

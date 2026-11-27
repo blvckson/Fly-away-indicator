@@ -29,12 +29,15 @@ jobs:
       - name: Build debug APK and run unit tests
         shell: bash
         run: |
-          # Maven Central occasionally rate-limits GitHub-hosted runners (HTTP 429).
-          # Retry the complete, idempotent Gradle task with increasing delays so
-          # transient repository throttling does not produce a false build failure.
+          # Retry only transient Maven Central HTTP 429 errors; real build or
+          # unit-test failures should stop immediately and remain visible in CI.
+          set -o pipefail
           for attempt in 1 2 3 4; do
-            if gradle testDebugUnitTest assembleDebug --no-daemon; then
+            if gradle testDebugUnitTest assembleDebug --no-daemon 2>&1 | tee /tmp/gradle-build.log; then
               exit 0
+            fi
+            if ! grep -Eqi 'HTTP 429|status code 429|Too Many Requests' /tmp/gradle-build.log; then
+              exit 1
             fi
             if [ "$attempt" -lt 4 ]; then
               sleep $((attempt * 20))

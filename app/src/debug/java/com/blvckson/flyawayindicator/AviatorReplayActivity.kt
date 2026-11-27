@@ -167,7 +167,7 @@ private class AviatorReplayView(context: android.content.Context) : View(context
             (255f - 115f * ramp).toInt().coerceIn(0, 255)
         )
         text.color = multiplierColor
-        text.textSize = h * (0.061f + 0.004f * ramp)
+        text.textSize = h * (0.075f + 0.004f * ramp)
         canvas.drawText("1.00x", w * 0.50f, h * 0.285f, text)
 
         text.color = Color.WHITE
@@ -177,9 +177,12 @@ private class AviatorReplayView(context: android.content.Context) : View(context
         canvas.drawText("CASH OUT", w * 0.70f, h * 0.79f, text)
 
         if (!ended && stage != Stage.CALIBRATION) {
-            val planeX = w * (0.28f + 0.58f * progress)
-            val planeY = h * (0.49f - 0.22f * progress)
-            drawAircraft(canvas, planeX, planeY, w * 0.060f)
+            // Keep the synthetic aircraft clear of the top-left floating overlay area.
+            // A larger, clean red component makes this controlled test target robust
+            // across emulator resolutions while preserving a smooth round trajectory.
+            val planeX = w * (0.70f + 0.12f * progress)
+            val planeY = h * (0.45f - 0.18f * progress)
+            drawAircraft(canvas, planeX, planeY, w * 0.090f)
         } else if (ended) {
             text.color = Color.WHITE
             text.textSize = h * 0.044f

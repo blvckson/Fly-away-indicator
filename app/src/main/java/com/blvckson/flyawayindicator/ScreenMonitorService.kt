@@ -124,21 +124,7 @@ class ScreenMonitorService : Service() {
             if ((applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE)==0) return
             when (intent?.action) {
                 ACTION_DEBUG_HIDE_PREVIEW -> main.post { preview?.visibility=android.view.View.GONE }
-                ACTION_DEBUG_HIDE_OVERLAY -> main.post {
-                    // The floating panel can cover the Aviator title and multiplier
-                    // in a captured test replay. Remove only the debug test overlay;
-                    // keep MediaProjection, ImageReader, OCR and detection running.
-                    val panel = overlayContainer
-                    if (panel != null) {
-                        try { wm?.removeView(panel) } catch (_: Throwable) {}
-                    }
-                    overlayContainer = null
-                    overlay = null
-                    preview = null
-                    sendBroadcast(
-                        Intent(ACTION_DEBUG_OVERLAY_HIDDEN).setPackage(packageName)
-                    )
-                }
+                ACTION_DEBUG_HIDE_OVERLAY -> main.post { hideDebugOverlay() }
             }
         }
     }
@@ -164,6 +150,12 @@ class ScreenMonitorService : Service() {
 
     override fun onStartCommand(intent:Intent?,flags:Int,startId:Int):Int{
         startForeground(7,notification())
+        if (intent?.action == ACTION_DEBUG_HIDE_OVERLAY) {
+            if ((applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE)!=0) {
+                hideDebugOverlay()
+            }
+            return START_STICKY
+        }
         if(intent?.action==ACTION_SHOW_OVERLAY){
             if(overlayContainer==null) showOverlay()
             return START_STICKY
@@ -185,6 +177,19 @@ class ScreenMonitorService : Service() {
         }
         startCapture()
         return START_STICKY
+    }
+
+    private fun hideDebugOverlay() {
+        // This is invoked only from a debug-build-only action. It removes the
+        // floating UI panel without stopping MediaProjection or the frame pipeline.
+        val panel = overlayContainer
+        if (panel != null) {
+            try { wm?.removeView(panel) } catch (_: Throwable) {}
+        }
+        overlayContainer = null
+        overlay = null
+        preview = null
+        sendBroadcast(Intent(ACTION_DEBUG_OVERLAY_HIDDEN).setPackage(packageName))
     }
 
     private fun startCapture(){

@@ -138,9 +138,9 @@ class IndicatorWarningReplayTest {
             // from this synthetic replay. The panel itself covers the Aviator title
             // and multiplier in the captured image, which can prevent OCR identity
             // confirmation. This command exists only in debuggable builds.
-            targetContext.sendBroadcast(
-                Intent(ScreenMonitorService.ACTION_DEBUG_HIDE_OVERLAY)
-                    .setPackage(targetContext.packageName)
+            targetContext.startService(
+                Intent(targetContext, ScreenMonitorService::class.java)
+                    .setAction(ScreenMonitorService.ACTION_DEBUG_HIDE_OVERLAY)
             )
             assertTrue(
                 "The debug overlay panel was not removed before replay capture.",

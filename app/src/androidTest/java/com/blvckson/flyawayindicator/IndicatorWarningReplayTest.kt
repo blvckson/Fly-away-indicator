@@ -230,12 +230,26 @@ class IndicatorWarningReplayTest {
                     roundStartAt = it.beginRoundForTest(roundCase.durationMs, roundCase.signalAtMs)
                 }
                 val diagnosticsBeforeRound = diagnostics.size
-                assertTrue(
-                    "${roundCase.name}: the real monitor did not accept the replayed live round.",
-                    waitUntil(3_000L) {
-                        diagnostics.drop(diagnosticsBeforeRound).any { it.contains("round=true") }
+                val acceptedLiveRound = waitUntil(3_000L) {
+                    diagnostics.drop(diagnosticsBeforeRound).any { it.contains("round=true") }
+                }
+                if (!acceptedLiveRound) {
+                    val screenshotSaved = captureFailureScreenshot(device)
+                    val replayState = try {
+                        var state = "replay Activity unavailable"
+                        replayScenario?.onActivity { state = it.debugStateForTest() }
+                        state
+                    } catch (failure: Throwable) {
+                        "replay state unavailable: ${failure.javaClass.simpleName}"
                     }
-                )
+                    throw AssertionError(
+                        "${roundCase.name}: the real monitor did not accept the replayed live round. " +
+                            "screenshotSaved=$screenshotSaved; replayState=$replayState; " +
+                            "debugFramesSinceStart=${diagnostics.drop(diagnosticsBeforeRound).size}; " +
+                            "last=${diagnostics.takeLast(24).joinToString(" | ")}; " +
+                            "statuses=${events.takeLast(8).joinToString { it.status }}"
+                    )
+                }
 
                 val redEvent = awaitStatus(
                     events = events,

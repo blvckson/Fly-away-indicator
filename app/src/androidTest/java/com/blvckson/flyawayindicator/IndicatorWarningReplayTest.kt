@@ -45,14 +45,42 @@ class IndicatorWarningReplayTest {
         val targetContext = instrumentation.targetContext
         val device = UiDevice.getInstance(instrumentation)
         val events = CopyOnWriteArrayList<StatusEvent>()
+        val diagnostics = CopyOnWriteArrayList<String>()
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
+                if (intent?.action == ScreenMonitorService.ACTION_DEBUG_FRAME) {
+                    diagnostics.add(
+                        "phase=${intent.getStringExtra("phase")}" +
+                            " live=${intent.getBooleanExtra("visualLive", false)}" +
+                            " detector=${intent.getBooleanExtra("detectorLive", false)}" +
+                            " plane=${intent.getBooleanExtra("planePresent", false)}" +
+                            " pScore=${"%.2f".format(java.util.Locale.US, intent.getDoubleExtra("planeScore", 0.0))}" +
+                            " scene=${"%.2f".format(java.util.Locale.US, intent.getDoubleExtra("sceneScore", 0.0))}" +
+                            " multVisual=${"%.2f".format(java.util.Locale.US, intent.getDoubleExtra("multiplierVisualScore", 0.0))}" +
+                            " multSamples=${intent.getIntExtra("multiplierSamples", 0)}" +
+                            " airBehaviour=${"%.2f".format(java.util.Locale.US, intent.getDoubleExtra("aircraftBehaviour", 0.0))}" +
+                            " text=${intent.getBooleanExtra("textVerified", false)}" +
+                            " bounds=${intent.getBooleanExtra("multiplierBounds", false)}" +
+                            " round=${intent.getBooleanExtra("roundActive", false)}" +
+                            " elapsed=${intent.getLongExtra("roundElapsedMs", 0L)}" +
+                            " frames=${intent.getIntExtra("indicatorFrames", 0)}" +
+                            " progress=${"%.3f".format(java.util.Locale.US, intent.getDoubleExtra("flightProgress", 0.0))}" +
+                            " signals=${intent.getIntExtra("independentSignals", 0)}" +
+                            " pre=${intent.getBooleanExtra("preEvidence", false)}" +
+                            " hold=${intent.getIntExtra("preHold", 0)}" +
+                            " skip=${intent.getBooleanExtra("reacquisitionSkip", false)}"
+                    )
+                    return
+                }
                 val status = intent?.getStringExtra(ScreenMonitorService.EXTRA_STATUS) ?: return
                 events.add(StatusEvent(status, SystemClock.elapsedRealtime()))
             }
         }
 
-        targetContext.registerReceiver(receiver, IntentFilter(ScreenMonitorService.ACTION_STATUS))
+        val statusFilter = IntentFilter(ScreenMonitorService.ACTION_STATUS).apply {
+            addAction(ScreenMonitorService.ACTION_DEBUG_FRAME)
+        }
+        targetContext.registerReceiver(receiver, statusFilter)
         var mainScenario: ActivityScenario<MainActivity>? = null
         var replayActivity: AviatorReplayActivity? = null
 
@@ -134,7 +162,8 @@ class IndicatorWarningReplayTest {
                     timeoutMs = roundCase.durationMs + 4_000L
                 )
                 assertNotNull(
-                    "${roundCase.name}: no RED warning was produced by the live screen-processing pipeline.",
+                    "${roundCase.name}: no RED warning was produced by the live screen-processing pipeline. " +
+                        "Latest diagnostics: ${diagnostics.takeLast(10).joinToString(" | ")}",
                     redEvent
                 )
 

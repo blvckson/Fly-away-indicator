@@ -26,6 +26,7 @@ import kotlin.math.sqrt
 class ScreenMonitorService : Service() {
     companion object {
         const val ACTION_STATUS="com.blvckson.flyawayindicator.STATUS"
+        const val ACTION_DEBUG_FRAME="com.blvckson.flyawayindicator.DEBUG_FRAME"
         const val EXTRA_STATUS="status"
         const val EXTRA_STATEMENT="statement"
         const val EXTRA_ROUNDS="rounds"
@@ -113,6 +114,8 @@ class ScreenMonitorService : Service() {
     private var indicatorFlightProgress=0.0
     private var lastIndicatorSignalReport="Signal indices /100 — awaiting first live-round sample."
     private var latchedRedSignalReport=""
+    // Debug-build-only telemetry for calibrating the synthetic warning replay.
+    private var lastDebugFrameBroadcastAtMs=0L
 
     override fun onCreate(){
         super.onCreate()
@@ -365,6 +368,14 @@ class ScreenMonitorService : Service() {
 
         indicatorRoundActive=indicatorPhaseMachine.isRoundActive
         indicatorPreDetected=currentIndicatorPhase==IndicatorPhase.RED
+        var debugTrend=0.5
+        var debugCentral=central
+        var debugAircraft=state.planeScore
+        var debugMovement=state.movementScore
+        var debugMultiplier=multiplierBehaviour.changeScore
+        var debugCandidate=0.0
+        var debugEvidence=false
+        var debugIndependentSignals=0
 
         if(indicatorPhaseMachine.phase==IndicatorPhase.GREEN && visualLive && !skipForReacquisition){
             indicatorFrames++
@@ -410,6 +421,12 @@ class ScreenMonitorService : Service() {
                 multiplier=multiplierBehaviour.changeScore
             )
             val candidate=PreFlyTiming.candidate(signals)
+            debugTrend=indicatorTrend
+            debugCentral=indicatorCentralChange
+            debugAircraft=aircraftSignal
+            debugMovement=movementSignal
+            debugMultiplier=multiplierBehaviour.changeScore
+            debugCandidate=candidate
 
             // Two opening observations allow very short rounds to be evaluated
             // earlier. A two-sample baseline uses a stricter, three-signal path.
@@ -444,6 +461,7 @@ class ScreenMonitorService : Service() {
                 indicatorFlightProgress=max(indicatorFlightProgress,progress)
             }
             val independentSignals=PreFlyTiming.evidenceCount(signals)
+            debugIndependentSignals=independentSignals
             val preEvidence=!roundResumed && baselineReady && PreFlyTiming.isEvidence(
                 signals=signals,
                 candidate=candidate,
@@ -454,6 +472,7 @@ class ScreenMonitorService : Service() {
                 flightProgress=indicatorFlightProgress,
                 roundElapsedMs=roundElapsedMs
             )
+            debugEvidence=preEvidence
             val isLongRound=roundElapsedMs>=PreFlyTiming.LONG_ROUND_THRESHOLD_MS
             if(isLongRound && !indicatorWasLongRound){
                 // Do not carry pre-boundary short/medium evidence into the
@@ -543,6 +562,44 @@ class ScreenMonitorService : Service() {
                 planeMissingSinceMs > 0L && now-planeMissingSinceMs >= 1800L &&
                 (endingMultiplier.isNotBlank() || textVerifier.isEndConfirmed())
             if(roundFrames >= 20 && (redMultiplierFrozen || explicitEnd || sustainedPlaneDisappearance)) finishRound()
+        }
+
+        if(BuildConfig.DEBUG && phaseNowMs-lastDebugFrameBroadcastAtMs>=250L){
+            lastDebugFrameBroadcastAtMs=phaseNowMs
+            sendBroadcast(
+                Intent(ACTION_DEBUG_FRAME).setPackage(packageName)
+                    .putExtra("phase",indicatorPhaseMachine.phase.name)
+                    .putExtra("screenPresent",aviatorScreenPresent)
+                    .putExtra("textVerified",textEvidence.verified)
+                    .putExtra("multiplierPresent",textEvidence.multiplierPresent)
+                    .putExtra("aviatorLabelPresent",textEvidence.aviatorLabelPresent)
+                    .putExtra("multiplierBounds",textEvidence.multiplierBounds!=null)
+                    .putExtra("detectorLive",state.isLive)
+                    .putExtra("visualLive",visualLive)
+                    .putExtra("planePresent",planePresent)
+                    .putExtra("planeScore",state.planeScore)
+                    .putExtra("sceneScore",state.sceneScore)
+                    .putExtra("multiplierVisualScore",state.multiplierVisualScore)
+                    .putExtra("multiplierSamples",multiplierBehaviour.samples)
+                    .putExtra("aircraftBehaviour",state.aircraftBehaviourScore)
+                    .putExtra("movement",state.movementScore)
+                    .putExtra("roundActive",indicatorPhaseMachine.isRoundActive)
+                    .putExtra("roundElapsedMs",roundElapsedMs)
+                    .putExtra("indicatorFrames",indicatorFrames)
+                    .putExtra("baselineSamples",indicatorBaseline.size)
+                    .putExtra("flightProgress",indicatorFlightProgress)
+                    .putExtra("trend",debugTrend)
+                    .putExtra("central",debugCentral)
+                    .putExtra("aircraftSignal",debugAircraft)
+                    .putExtra("movementSignal",debugMovement)
+                    .putExtra("multiplierSignal",debugMultiplier)
+                    .putExtra("candidate",debugCandidate)
+                    .putExtra("baselineScore",indicatorBaselineScore)
+                    .putExtra("independentSignals",debugIndependentSignals)
+                    .putExtra("preEvidence",debugEvidence)
+                    .putExtra("preHold",indicatorPreHold)
+                    .putExtra("reacquisitionSkip",skipForReacquisition)
+            )
         }
 
         when(indicatorPhaseMachine.phase){

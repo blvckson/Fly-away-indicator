@@ -206,6 +206,28 @@ class IndicatorWarningReplayTest {
                 )
             }
 
+            // GREEN can appear from verified screen-presence text before a live
+            // round is accepted. Warm the real OCR + multiplier-appearance pipeline
+            // while the calibration screen has no aircraft, so the first measured
+            // flight does not spend its short pre-warning window waiting for its
+            // second independent OCR sample.
+            val identityWarm = waitUntil(20_000L) {
+                diagnostics.any { frame ->
+                    val samples = Regex("multSamples=(\\d+)")
+                        .find(frame)?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 0
+                    samples >= 2 &&
+                        "text=true" in frame &&
+                        "bounds=true" in frame &&
+                        "aviator=true" in frame
+                }
+            }
+            assertTrue(
+                "OCR identity and two independent multiplier-appearance samples did not warm up " +
+                    "before the first measured round. Last diagnostics: " +
+                    diagnostics.takeLast(12).joinToString(" | "),
+                identityWarm
+            )
+
             val durationProfiles = listOf(
                 RoundCase("short", 9_000L, 4_800L),
                 RoundCase("medium", 15_000L, 11_000L),

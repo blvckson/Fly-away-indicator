@@ -88,6 +88,7 @@ class IndicatorWarningReplayTest {
         }
         targetContext.registerReceiver(receiver, statusFilter)
         var mainScenario: ActivityScenario<MainActivity>? = null
+        var replayScenario: ActivityScenario<AviatorReplayActivity>? = null
 
         try {
             assertTrue(
@@ -131,12 +132,14 @@ class IndicatorWarningReplayTest {
             )
             SystemClock.sleep(500L)
 
-            mainScenario!!.onActivity { activity ->
-                activity.startActivity(
-                    Intent(activity, AviatorReplayActivity::class.java)
-                        .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                )
-            }
+            // Use a dedicated ActivityScenario for the replay screen. The previous
+            // approach launched it inside MainActivity's scenario callback; AndroidX
+            // could then restore the tracked MainActivity, leaving the emulator on the
+            // launcher while the monitor continued capturing an empty screen.
+            replayScenario = ActivityScenario.launch<AviatorReplayActivity>(
+                Intent(targetContext, AviatorReplayActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            )
             assertTrue(
                 "Synthetic replay Activity did not become the resumed foreground Activity.",
                 waitUntil(10_000L) {
@@ -147,6 +150,7 @@ class IndicatorWarningReplayTest {
                         resumed.contains("AviatorReplayActivity")
                 }
             )
+            val calibrationRequestedAt = SystemClock.elapsedRealtime()
             targetContext.sendBroadcast(
                 Intent(AviatorReplayActivity.ACTION_SHOW_CALIBRATION)
                     .setPackage(targetContext.packageName)
@@ -154,7 +158,7 @@ class IndicatorWarningReplayTest {
             val firstGreen = awaitStatus(
                 events = events,
                 status = "ROUND VISUAL MONITORING — GREEN",
-                afterMs = SystemClock.elapsedRealtime(),
+                afterMs = calibrationRequestedAt - 1L,
                 timeoutMs = 45_000L
             )
             if (firstGreen == null) {
@@ -323,6 +327,7 @@ class IndicatorWarningReplayTest {
                         .setPackage(targetContext.packageName)
                 )
             } catch (_: Throwable) {}
+            try { replayScenario?.close() } catch (_: Throwable) {}
             try { mainScenario?.close() } catch (_: Throwable) {}
             try { targetContext.stopService(Intent(targetContext, ScreenMonitorService::class.java)) } catch (_: Throwable) {}
             try { targetContext.unregisterReceiver(receiver) } catch (_: Throwable) {}

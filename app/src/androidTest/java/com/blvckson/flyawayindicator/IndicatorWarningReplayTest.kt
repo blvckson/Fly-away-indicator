@@ -175,31 +175,33 @@ class IndicatorWarningReplayTest {
                     afterMs = roundStartAt,
                     timeoutMs = roundCase.durationMs + 4_000L
                 )
-                if (redEvent == null) {
-                    // Preserve the actual emulator display so a failed replay can be
-                    // visually diagnosed instead of guessing from detector counters.
-                    val screenshotSaved = device.takeScreenshot(File("/sdcard/aviator-replay-failure.png"))
-                    val replayState = try {
+                val replayStateOnFailure = if (redEvent == null) {
+                    try {
                         replayScenario?.onActivity { activity -> activity.debugState() } ?: "replay activity unavailable"
                     } catch (failure: Throwable) {
                         "replay activity state unavailable: ${failure.javaClass.simpleName}"
                     }
-                    val foreground = try {
+                } else ""
+                val foregroundOnFailure = if (redEvent == null) {
+                    try {
                         device.executeShellCommand(
                             "dumpsys activity activities | grep -E 'mResumedActivity|topResumedActivity' | tail -n 2"
                         ).trim()
                     } catch (failure: Throwable) {
                         "foreground unavailable: ${failure.javaClass.simpleName}"
                     }
-                    System.out.println(
-                        "AVIATOR_REPLAY_DIAGNOSTICS count=${diagnostics.size} screenshotSaved=$screenshotSaved " +
-                            "replayState=$replayState foreground=$foreground " +
-                            diagnostics.joinToString(" || ")
-                    )
-                }
+                } else ""
+                val screenshotSaved = if (redEvent == null) {
+                    // Preserve the actual emulator display so a failed replay can be
+                    // visually diagnosed instead of guessing from detector counters.
+                    device.takeScreenshot(File("/sdcard/aviator-replay-failure.png"))
+                } else false
                 assertNotNull(
                     "${roundCase.name}: no RED warning was produced by the live screen-processing pipeline. " +
-                        "Latest diagnostics (count=${diagnostics.size}): first=${diagnostics.take(6).joinToString(" | ")}; last=${diagnostics.takeLast(12).joinToString(" | ")}",
+                        "replayState=$replayStateOnFailure; foreground=$foregroundOnFailure; " +
+                        "screenshotSaved=$screenshotSaved; diagnostics count=${diagnostics.size}: " +
+                        "first=${diagnostics.take(6).joinToString(" | ")}; " +
+                        "last=${diagnostics.takeLast(12).joinToString(" | ")}",
                     redEvent
                 )
 

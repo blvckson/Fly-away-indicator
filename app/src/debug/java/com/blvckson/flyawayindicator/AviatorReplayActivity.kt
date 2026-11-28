@@ -182,6 +182,11 @@ private class AviatorReplayView(context: android.content.Context) : View(context
 
         if (stage == Stage.NEUTRAL) {
             canvas.drawColor(Color.rgb(12, 16, 25))
+            // Keep invalidating the neutral frame while the test leaves the game.
+            // MediaProjection/ImageReader only drives processFrame() when the
+            // captured display produces frames; without this cadence the six-second
+            // absence lease cannot be observed on an otherwise static screen.
+            postInvalidateDelayed(70L)
             return
         }
 

@@ -242,6 +242,16 @@ private class AviatorReplayView(context: android.content.Context) : View(context
         }
         canvas.drawPath(wave, stroke)
 
+        // Model the persistent, high-contrast multiplier landmark in the live
+        // game area. It must remain visible before a late pre-fly signal too:
+        // very-long rounds cannot rely on the aircraft having travelled into
+        // the detector's central sampling band during their first few seconds.
+        // This is debug replay artwork only; production detector gates stay intact.
+        stroke.color = Color.argb(235, 125, 220, 250)
+        stroke.strokeWidth = 8f
+        val multiplierBadge = RectF(w * 0.32f, h * 0.205f, w * 0.68f, h * 0.345f)
+        canvas.drawRoundRect(multiplierBadge, 28f, 28f, stroke)
+
         text.textSize = h * 0.043f
         text.color = Color.WHITE
         canvas.drawText("AVIATOR", w * 0.50f, h * 0.155f, text)

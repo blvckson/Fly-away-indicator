@@ -56,6 +56,12 @@ class IndicatorWarningReplayTest {
                             " screenPresent=${intent.getBooleanExtra("screenPresent", false)}" +
                             " live=${intent.getBooleanExtra("visualLive", false)}" +
                             " detector=${intent.getBooleanExtra("detectorLive", false)}" +
+                            " candidate=${intent.getBooleanExtra("liveCandidate", false)}" +
+                            " liveHits=${intent.getIntExtra("liveStableHits", 0)}" +
+                            " liveMiss=${intent.getIntExtra("liveMissHits", 0)}" +
+                            " liveConf=${"%.2f".format(java.util.Locale.US, intent.getDoubleExtra("liveConfidence", 0.0))}" +
+                            " centralGate=${"%.3f".format(java.util.Locale.US, intent.getDoubleExtra("liveCentralScore", 0.0))}" +
+                            " identity=${intent.getBooleanExtra("identityConfirmed", false)}" +
                             " ocr=${intent.getStringExtra("ocrStatus")}" +
                             " textAt=${intent.getLongExtra("textObservedAt", 0L)}" +
                             " multPresent=${intent.getBooleanExtra("multiplierPresent", false)}" +

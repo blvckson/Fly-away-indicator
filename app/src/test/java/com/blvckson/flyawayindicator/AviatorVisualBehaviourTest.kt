@@ -7,6 +7,13 @@ import org.junit.Test
 
 class AviatorVisualBehaviourTest {
     @Test
+    fun multiplierOcrPatternSupportsExtremelyLongRoundValues() {
+        assertTrue(AviatorMultiplierTextPattern.pattern.matcher("1000004.09x").find())
+        assertTrue(AviatorMultiplierTextPattern.pattern.matcher("4.09x").find())
+        assertFalse(AviatorMultiplierTextPattern.pattern.matcher("10000000.09x").find())
+    }
+
+    @Test
     fun steadyMultiplierAppearanceDoesNotLookLikeAChange() {
         val tracker = MultiplierBehaviourTracker()
         val steady = MultiplierAppearance(

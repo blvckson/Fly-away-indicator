@@ -5,8 +5,8 @@ import android.app.AlertDialog
 import android.content.*
 import android.media.projection.MediaProjectionManager
 import android.net.Uri
-import android.os.Bundle
 import android.provider.Settings
+import android.os.Bundle
 import android.view.MenuItem
 import android.view.View
 import android.widget.Button
@@ -65,7 +65,7 @@ class MainActivity : Activity() {
     }
 
     private fun requestMonitoring(){
-        if(!Settings.canDrawOverlays(this)){
+        if(!OverlayPermissionChecker.canDraw(this)){
             startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
             status.text="Allow overlay permission, then press START MONITOR again."
             return
@@ -91,7 +91,7 @@ class MainActivity : Activity() {
         } else {
             startService(service)
         }
-        status.text="Monitor active — waiting for the Aviator live screen."
+        status.text="Monitor active — waiting for the live game screen."
     }
 
     private fun showStatement(){
@@ -106,7 +106,7 @@ class MainActivity : Activity() {
         val all=RoundRecordStore(this).all()
         rounds.text="Recorded rounds: ${all.size}"
         if(all.isEmpty()){
-            statement.text="Statement Area: waiting for recorded Aviator rounds."
+            statement.text="Statement Area: waiting for recorded rounds."
             return
         }
         val recent=all.takeLast(8).asReversed().joinToString("\n"){r->

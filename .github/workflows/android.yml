@@ -1,8 +1,12 @@
 name: Android Build
 
+# Feature-branch pushes run unit tests, package an APK, and exercise the app on
+# an Android 8.1 emulator. The emulator smoke test covers the UI and the actual
+# MediaProjection-consent -> foreground-service -> ImageReader startup path.
+
 on:
   push:
-    branches: [ main ]
+    branches: [ main, fix/long-round-pre-fly-timing-20261122 ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -22,10 +26,65 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.5'
-      - name: Build debug APK
-        run: gradle testDebugUnitTest assembleDebug --no-daemon
+      - name: Build debug APK and run unit tests
+        shell: bash
+        run: |
+          # Retry only transient Maven Central HTTP 429 errors; real build or
+          # unit-test failures should stop immediately and remain visible in CI.
+          set -o pipefail
+          for attempt in 1 2 3 4; do
+            if gradle testDebugUnitTest assembleDebug --no-daemon 2>&1 | tee /tmp/gradle-build.log; then
+              exit 0
+            fi
+            if ! grep -Eqi 'HTTP 429|status code 429|Too Many Requests' /tmp/gradle-build.log; then
+              exit 1
+            fi
+            if [ "$attempt" -lt 4 ]; then
+              sleep $((attempt * 20))
+            fi
+          done
+          exit 1
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: fly-away-indicator-debug
           path: app/build/outputs/apk/debug/app-debug.apk
+
+  emulator-runtime:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.5'
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Run Android 8.1 runtime smoke tests
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 27
+          target: default
+          arch: x86_64
+          profile: Nexus 6
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: bash .github/scripts/run-emulator-runtime.sh
+      - name: Upload emulator test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: emulator-runtime-test-reports
+          path: app/build/reports/androidTests/connected/
+          if-no-files-found: ignore

@@ -13,7 +13,13 @@ data class LiveScreenState(
     val planeX: Float = Float.NaN,
     val planeY: Float = Float.NaN,
     val aircraftBehaviourScore: Double = 0.0,
-    val movementScore: Double = 0.0
+    val movementScore: Double = 0.0,
+    val centralScore: Double = 0.0,
+    val liveCandidate: Boolean = false,
+    val stableHits: Int = 0,
+    val missHits: Int = 0,
+    val confidence: Double = 0.0,
+    val identityConfirmed: Boolean = false
 )
 
 /**
@@ -30,15 +36,27 @@ class LiveScreenDetector {
     private var identityLatched = false
     private val aircraftBehaviourTracker = AircraftBehaviourTracker()
 
-    /** Clear aircraft confirmation history after a completed round. */
-    fun resetTracking() {
+    /**
+     * Clear per-round aircraft tracking after a completed round.
+     *
+     * Aviator screen identity is session-scoped, not round-scoped: while the
+     * verified game screen remains present, a new round must not need to
+     * re-prove the same screen identity from scratch. Aircraft position,
+     * movement and live-frame confirmation are still reset for every round.
+     */
+    fun resetRoundTracking() {
         lastPlaneX = Float.NaN
         lastPlaneY = Float.NaN
         stableHits = 0
         missHits = 0
         confidence = 0.0
-        identityLatched = false
         aircraftBehaviourTracker.reset()
+    }
+
+    /** Clear all tracking only after the verified Aviator screen session ends. */
+    fun resetTracking() {
+        resetRoundTracking()
+        identityLatched = false
     }
 
     internal fun inspect(
@@ -227,7 +245,13 @@ class LiveScreenDetector {
         return LiveScreenState(
             live, planeScore, central, sceneScore,
             bestX, bestY, aircraftBehaviour.score,
-            max(movementScore, aircraftBehaviour.movementScore)
+            max(movementScore, aircraftBehaviour.movementScore),
+            centralScore = central,
+            liveCandidate = candidate,
+            stableHits = stableHits,
+            missHits = missHits,
+            confidence = confidence,
+            identityConfirmed = identityConfirmed
         )
     }
 

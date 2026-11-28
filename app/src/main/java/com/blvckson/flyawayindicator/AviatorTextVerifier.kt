@@ -11,6 +11,14 @@ import java.util.regex.Pattern
  * OCR evidence for Aviator screen identity. The multiplier's numeric value is
  * deliberately not exposed; only its presence and visual bounds are retained.
  */
+internal object AviatorMultiplierTextPattern {
+    // Seven integer digits cover the user's very-long-round examples (e.g. 1000004.09x).
+    val pattern: Pattern = Pattern.compile(
+        "(?<![\\d.])\\b\\d{1,7}(?:\\.\\d{1,3})?\\s*x\\b",
+        Pattern.CASE_INSENSITIVE
+    )
+}
+
 class AviatorTextVerifier {
     private val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
     @Volatile private var busy = false
@@ -19,6 +27,7 @@ class AviatorTextVerifier {
     @Volatile private var lastResultAt = 0L
     @Volatile private var lastResult = "Waiting for Aviator text confirmation"
     @Volatile private var endedUntil = 0L
+    @Volatile private var screenPresenceUntil = 0L
     @Volatile private var latestEvidence = AviatorTextEvidence()
 
     fun inspect(frame: Bitmap, now: Long = System.currentTimeMillis()) {
@@ -51,10 +60,7 @@ class AviatorTextVerifier {
                     val text = result.text.lowercase(Locale.US)
                         .replace(',', '.')
                         .replace('×', 'x')
-                    val multiplierPattern = Pattern.compile(
-                        "\\b\\d{1,5}(?:\\.\\d{1,3})?\\s*x\\b",
-                        Pattern.CASE_INSENSITIVE
-                    )
+                    val multiplierPattern = AviatorMultiplierTextPattern.pattern
                     val multiplierLine = result.textBlocks
                         .asSequence()
                         .flatMap { it.lines.asSequence() }
@@ -89,9 +95,16 @@ class AviatorTextVerifier {
                     }
 
                     val aviatorWord = text.contains("aviator") || text.contains("flew away")
+                    val betButtonPresent = Pattern.compile("\\bbet\\b").matcher(text).find()
+                    val cashOutPresent = text.contains("cash out") || text.contains("cashout")
                     val betControl = text.contains("bet") &&
-                        (text.contains("auto") || text.contains("cash out") ||
-                            text.contains("cashout"))
+                        (text.contains("auto") || cashOutPresent)
+                    // Do not let this app's own waiting text (or unrelated text that
+                    // merely mentions Aviator) start a GREEN screen session. Require
+                    // the game marker/control to be paired with an on-screen multiplier.
+                    if (multiplierPresent && (aviatorWord || betControl)) {
+                        screenPresenceUntil = System.currentTimeMillis() + 5_000L
+                    }
                     val match = multiplierPresent && (aviatorWord || betControl)
                     if (match) {
                         consecutiveMatches = (consecutiveMatches + 1).coerceAtMost(4)
@@ -112,6 +125,8 @@ class AviatorTextVerifier {
                         aviatorLabelPresent = aviatorWord,
                         gameControlsPresent = betControl,
                         endConfirmed = isEndConfirmed(),
+                        betButtonPresent = betButtonPresent,
+                        cashOutPresent = cashOutPresent,
                         multiplierBounds = multiplierBounds,
                         observedAtMillis = System.currentTimeMillis()
                     )
@@ -142,6 +157,9 @@ class AviatorTextVerifier {
         consecutiveMatches >= 2 && now <= verifiedUntil
 
     fun isEndConfirmed(now: Long = System.currentTimeMillis()): Boolean = now <= endedUntil
+
+    fun isAviatorScreenVisible(now: Long = System.currentTimeMillis()): Boolean =
+        now <= screenPresenceUntil
 
     internal fun evidence(now: Long = System.currentTimeMillis()): AviatorTextEvidence =
         latestEvidence.copy(verified = isVerified(now), endConfirmed = isEndConfirmed(now))

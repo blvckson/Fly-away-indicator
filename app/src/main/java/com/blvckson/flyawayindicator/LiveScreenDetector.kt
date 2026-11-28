@@ -13,7 +13,13 @@ data class LiveScreenState(
     val planeX: Float = Float.NaN,
     val planeY: Float = Float.NaN,
     val aircraftBehaviourScore: Double = 0.0,
-    val movementScore: Double = 0.0
+    val movementScore: Double = 0.0,
+    val centralScore: Double = 0.0,
+    val liveCandidate: Boolean = false,
+    val stableHits: Int = 0,
+    val missHits: Int = 0,
+    val confidence: Double = 0.0,
+    val identityConfirmed: Boolean = false
 )
 
 /**
@@ -239,7 +245,13 @@ class LiveScreenDetector {
         return LiveScreenState(
             live, planeScore, central, sceneScore,
             bestX, bestY, aircraftBehaviour.score,
-            max(movementScore, aircraftBehaviour.movementScore)
+            max(movementScore, aircraftBehaviour.movementScore),
+            centralScore = central,
+            liveCandidate = candidate,
+            stableHits = stableHits,
+            missHits = missHits,
+            confidence = confidence,
+            identityConfirmed = identityConfirmed
         )
     }
 

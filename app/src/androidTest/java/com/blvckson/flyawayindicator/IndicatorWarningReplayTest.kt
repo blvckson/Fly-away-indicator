@@ -470,8 +470,15 @@ class IndicatorWarningReplayTest {
                 afterMs = leavingScreenAt - 1L,
                 timeoutMs = 20_000L
             )
+            val blackFailureScreenshot = if (blackAfterLeavingScreen == null) {
+                captureFailureScreenshot(device)
+            } else false
             assertNotNull(
-                "The monitor did not reset to BLACK after the game screen was actually left.",
+                "The monitor did not reset to BLACK after the game screen was actually left. " +
+                    "screenshotSaved=$blackFailureScreenshot; " +
+                    "lastFrames=${diagnostics.takeLast(24).joinToString(" | ")}; " +
+                    "replayLifecycle=${replayLifecycleEvents.takeLast(8).joinToString(" | ")}; " +
+                    "statuses=${events.takeLast(10).joinToString { it.status }}",
                 blackAfterLeavingScreen
             )
         } finally {
